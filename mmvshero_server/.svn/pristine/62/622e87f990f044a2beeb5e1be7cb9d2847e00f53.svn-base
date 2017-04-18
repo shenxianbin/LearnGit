@@ -1,0 +1,62 @@
+syntax="proto2";
+
+package protocol;
+
+message KingSkill
+{
+	required int32 skill_id = 1;
+	required int32 lv = 2;
+	required int64 timestamp = 3;
+}
+
+message KingInfo
+{
+	required int32 king_lv = 1;
+	repeated KingSkill king_skills = 2;
+}
+
+message MsgKingSkillNotify{
+	required KingSkill kingSkill = 1;
+}
+
+//开始技能升级
+message MsgKingSkillStartLvUpReq{
+	required int32 skill_id = 1;
+	required bool used_coin = 2;//使用货币立即升级
+}
+
+message MsgKingSkillStartLvUpRet{
+	required int32 retCode = 1;
+}
+//使用货币移除升级时间
+message MsgKingSkillLvUpRemoveTimeReq{
+	required int32 skill_id = 1;
+}
+
+message MsgKingSkillLvUpRemoveTimeRet{
+	required int32 retCode = 1;
+}
+//检查技能升级是否完成升级
+message MsgKingSkillFinishLvUpReq{
+	required int32 skill_id = 1;
+}
+
+message MsgKingSkillFinishLvUpRet{
+	required int32 retCode = 1;
+}
+//取消技能升级
+message MsgKingSkillCancelLvUpReq{
+	required int32 skill_id = 1;
+}
+
+message MsgKingSkillCancelLvUpRet{
+	required int32 retCode = 1;
+}
+//等级提升
+message MsgKingAddLvReq{
+	
+}
+
+message MsgKingAddLvRet{
+	required int32 retCode = 1;
+}

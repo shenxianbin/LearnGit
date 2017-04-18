@@ -1,0 +1,69 @@
+syntax="proto2";
+package protocol;
+
+import "award.proto";
+
+message Stars {
+	required int32 missionId = 1;
+	required int32 isFinish = 2; // 1完成 ，0未完成
+}
+
+message Stage{
+	required int32	schemeId 	= 1;//scheme id
+	required bool	isBeginning = 2;
+	required bool	isPassed 	= 3;
+	required bool   isPlayedAnimation = 4;//是否播放过开始动画
+	repeated Stars  stars 		= 5;
+	required int64  lastBattleTime=6;		//最近战斗时间
+	required int32  dailyBattleTimes=7;     //当天累计战斗次数
+}
+
+message MsgStageAllReq{
+
+}
+
+message MsgStageAllRet{
+	repeated Stage stages = 1;
+}
+
+message MsgStagePlayAnimationReq{
+	required int32 schemeId = 1;//scheme id
+}
+
+message MsgStagePlayAnimationRet{
+	required int32 retCode 	= 1;
+}
+
+//关卡开始
+message MsgStageBeginReq{
+	required int32 schemeId = 1;//scheme id
+}
+
+message MsgStageBeginRet{
+	required int32 retCode 	= 1;
+}
+//关卡结束
+message MsgStageFinishReq{
+	required int32 	schemeId 	= 1;//scheme id
+	required bool 	isPassed 	= 2; //是否通关
+	repeated Stars  stars 		= 3; //星级
+	required bool 	isSweep		= 4;//是否扫荡
+	required int32 	sweepTimes	= 5;//扫荡次数
+}
+
+//关卡奖励
+message StageAward{
+	repeated AwardInfo FixedAwards 		= 1;
+	repeated AwardInfo ItemAwards 		= 2;
+	repeated AwardInfo HeroAwards 		= 3;
+	repeated AwardInfo SoldierAwards 	= 4;
+	repeated AwardInfo ExtraBonus		= 5;
+}
+
+//奖励信息
+message MsgStageFinishRet{
+	required int32 retCode 			= 1;
+	required int32 currentStageId1	= 2;//普通难度开放的关卡id
+	required int32 currentStageId2	= 3;//精英难度开放的关卡id
+ 	repeated StageAward awards 		= 4;
+}

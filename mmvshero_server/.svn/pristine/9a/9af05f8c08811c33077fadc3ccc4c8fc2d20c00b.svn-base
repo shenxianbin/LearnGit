@@ -1,0 +1,30 @@
+syntax="proto2";
+
+package protocol;
+
+message BuildingInfo
+{
+	required int64 uid = 1;
+	required int32 scheme_id = 2;
+	required int32 lv = 3;
+}
+
+message BuildingListInfo
+{
+	repeated BuildingInfo build_list = 1;
+}
+
+//建筑變動通知
+message MsgBuildingInfoNotify
+{
+	required BuildingInfo building = 1;
+}
+
+//建筑开始升级
+message MsgBuildingLvUpReq {
+	required int64 building_uid = 1;
+}
+
+message MsgBuildingLvUpRet {
+	required int32 retcode = 1;
+}

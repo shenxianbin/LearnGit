@@ -1,0 +1,15 @@
+syntax="proto3";
+
+package cache;
+
+message AccountCache
+{
+    int64  roleId           = 1;
+    string username         = 2;
+    string password         = 3;
+    string salt             = 4;
+    int32  accountType      = 5;
+    string thirdpartToken   = 6;
+    int64  loginTime        = 7;
+    int64  createTime       = 8;
+}

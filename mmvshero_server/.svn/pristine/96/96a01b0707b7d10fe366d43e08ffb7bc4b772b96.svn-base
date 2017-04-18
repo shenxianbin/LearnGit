@@ -1,0 +1,124 @@
+syntax = "proto2";
+package protocol;
+
+message Friend
+{
+	required int64 id = 1;						//好友id
+	required int64 selfId = 2;					//自身id
+	required int32 winTimes = 3;
+	required int32 loseTimes = 4;
+	required int64 sendExcitationTime = 5;		//发送激励的时间
+	required int64 receiveExcitationTime = 6;	//接收激励的时间
+	required int64 useExcitationTime = 7;		//使用激励的时间
+	required FriendInfo friendInfo = 8;
+}
+
+message FriendInfo
+{
+	required int64 id = 1;
+	required int64 loginTime = 2;
+	required int32 level = 3;
+	required int32 leagueLevel = 4;
+	required int32 trophy = 5;
+	required int64 timestamp = 6;
+	required string nickname = 7;
+}
+
+message FriendRequest
+{
+	required int64 id = 1;
+	required int64 selfId = 2;
+	required int64 timestamp = 3;
+	required FriendInfo friendInfo = 4;
+}
+
+message MsgFriendAllReq{
+
+}
+
+message MsgFriendAllRet{
+	repeated Friend friends = 1;
+}
+
+//搜索好友
+message MsgFriendSearchReq{
+	required string alias = 1;
+}
+
+message MsgFriendSearchRet{
+	required int32 retCode = 1;
+	optional Friend friend = 2;
+}
+
+//删除好友
+message MsgFriendDeleteReq {
+	repeated int64 friendIds = 1;// friends uid
+}
+
+message MsgFriendDeleteRet{
+	required int32 retCode = 1;
+}
+
+//发送激励
+message MsgFriendSendExcitationReq{
+	repeated int64 friendIds = 1;// friends uid
+}
+
+message MsgFriendSendExcitationRet{
+	required int32 affectedRows = 1;
+}
+//接收激励
+message MsgFriendUseExcitationReq{
+	repeated int64 friendIds = 1;
+}
+
+message MsgFriendUseExcitationRet{
+	required int32 affectedRows = 2;
+}
+
+//好友切磋
+message MsgFriendSavePvpResultReq{
+	required int64 friendId = 1;
+	required bool attackerWin = 2;
+	required bytes record = 3;
+}
+
+message MsgFriendSavePvpResultRet{
+	required int32 retCode = 1;
+}
+
+//好友请求
+message MsgFriendRequestAllReq{
+
+}
+
+message MsgFriendRequestAllRet{
+	repeated FriendRequest requests = 1;
+}
+
+message MsgFriendRequestAddReq{
+	required int64 friendId = 1;
+}
+
+message MsgFriendRequestAddRet{
+	required int32 retCode = 1;
+}
+
+//处理好友请求
+message MsgFriendRequestDealWithReq{
+	required int64 friendId = 1;//friend uid
+	required bool isAgreed = 2;
+}
+
+message MsgFriendRequestDealWithRet{
+	required int32 retCode = 1;
+}
+
+//添加邀请者id
+message MsgFriendInviteAddIdReq{
+	required int64 inviteId = 1;// invite role uid
+}
+
+message MsgFriendInviteAddIdRet{
+	required int32 retCode = 1;
+}

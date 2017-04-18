@@ -1,0 +1,32 @@
+package main
+
+import (
+	"Gateserver/client"
+	"galaxy"
+	"galaxy/utils"
+	"os"
+	"os/signal"
+	"syscall"
+)
+
+func signalHandler() {
+	sc := make(chan os.Signal, 1)
+	signal.Notify(sc,
+		syscall.SIGHUP,
+		syscall.SIGINT,
+		syscall.SIGTERM,
+		syscall.SIGQUIT)
+	<-sc
+	galaxy.GxService().Stop()
+	galaxy.LogInfo("Service closed.")
+	os.Exit(0)
+}
+
+func main() {
+	defer utils.Stack()
+
+	galaxy.GxService().Run()
+	client.ClientManager()
+	galaxy.GxService().Wait()
+
+}

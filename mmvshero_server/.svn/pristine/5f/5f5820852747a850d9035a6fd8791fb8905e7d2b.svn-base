@@ -1,0 +1,62 @@
+package scheme
+
+import (
+	"strconv"
+	"strings"
+)
+
+type PlunderRandom struct {
+	num  int32
+	flow []int32
+}
+
+type PlunderAwardEx struct {
+	SoulAward    []int32
+	SoldierAward PlunderRandom
+	HeroPool     []int32
+	HeroAward    PlunderRandom
+}
+
+var PlunderAwardExmap map[int32]*PlunderAwardEx
+
+func PlunderAwardProcess() {
+	for k, v := range PlunderAwardmap {
+		plunderAwardEx := new(PlunderAwardEx)
+
+		soul_award := strings.Split(v.SoulAward, ",")
+		plunderAwardEx.SoulAward = make([]int32, len(soul_award))
+		for index, temp := range soul_award {
+			data, _ := strconv.Atoi(temp)
+			plunderAwardEx.SoulAward[index] = int32(data)
+		}
+
+		soldier_award := strings.Split(v.SoldierAward, ";")
+		soldier_random := strings.Split(soldier_award[1], ",")
+		num, _ := strconv.Atoi(soldier_award[0])
+		min, _ := strconv.Atoi(soldier_random[0])
+		max, _ := strconv.Atoi(soldier_random[0])
+		plunderAwardEx.SoldierAward.num = int32(num)
+		plunderAwardEx.SoldierAward.flow = make([]int32, 2)
+		plunderAwardEx.SoldierAward.flow[0] = int32(min)
+		plunderAwardEx.SoldierAward.flow[1] = int32(max)
+
+		hero_pool := strings.Split(v.HeroPool, ",")
+		plunderAwardEx.HeroPool = make([]int32, len(hero_pool))
+		for index, temp := range hero_pool {
+			data, _ := strconv.Atoi(temp)
+			plunderAwardEx.HeroPool[index] = int32(data)
+		}
+
+		hero_award := strings.Split(v.HeroAward, ";")
+		hero_random := strings.Split(hero_award[1], ",")
+		num, _ = strconv.Atoi(hero_award[0])
+		min, _ = strconv.Atoi(hero_random[0])
+		max, _ = strconv.Atoi(hero_random[0])
+		plunderAwardEx.HeroAward.num = int32(num)
+		plunderAwardEx.HeroAward.flow = make([]int32, 2)
+		plunderAwardEx.HeroAward.flow[0] = int32(min)
+		plunderAwardEx.HeroAward.flow[1] = int32(max)
+
+		PlunderAwardExmap[k] = plunderAwardEx
+	}
+}

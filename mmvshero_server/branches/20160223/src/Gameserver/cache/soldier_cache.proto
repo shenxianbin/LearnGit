@@ -1,0 +1,28 @@
+syntax="proto2";
+
+package cache;
+
+message SoldierCache
+{
+required int32	schemeId = 1 ;//scheme id
+required int32	num = 2 ;       
+required int32	level = 3;
+required int32	stage = 4;
+map<int32,int32> skillLevel = 5;
+required int32	exp = 6;       
+required int64	timestamp = 7;//升阶截止时间戳
+required int64  evoSpeedTimeStamp = 8;//升阶加速累计开始时间
+required int32  active = 9;
+required int64  autoId = 10; //地图上魔物的自增id
+}
+
+message SoldierEventCache {
+required int32  eventId    = 1;
+required int64	startTime  = 2; //发生的时间
+required int64	endTime    = 3; //结束的时间
+required int64	duration   = 4; //动作持续时间,秒 A
+required int32	eventType  = 5; //事件类型， 1恶斗，2生蛋，3生病
+required int32	remote     = 6; //A soldier id in map
+required int32	local      = 7; //B soldier id
+optional int32	levelTotal = 8; //A和B的等级和，生成事件的时候计算
+}

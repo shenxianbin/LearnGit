@@ -1,0 +1,71 @@
+package scheme
+
+import (
+	"strconv"
+	"strings"
+)
+
+type PlunderRandom struct {
+	Num  int32
+	Flow []int32
+}
+
+type PlunderAwardEx struct {
+	SoulAward    []int32
+	GoldAward    []int32
+	SoldierAward PlunderRandom
+	HeroPool     []int32
+	HeroAward    PlunderRandom
+}
+
+var PlunderAwardExmap map[int32]*PlunderAwardEx
+
+func PlunderAwardProcess() {
+	PlunderAwardExmap = make(map[int32]*PlunderAwardEx)
+	for k, v := range PlunderAwardmap {
+		plunderAwardEx := new(PlunderAwardEx)
+
+		soul_award := strings.Split(v.SoulAward, ",")
+		plunderAwardEx.SoulAward = make([]int32, len(soul_award))
+		for index, temp := range soul_award {
+			data, _ := strconv.Atoi(temp)
+			plunderAwardEx.SoulAward[index] = int32(data)
+		}
+
+		gold_award := strings.Split(v.GoldAward, ",")
+		plunderAwardEx.GoldAward = make([]int32, len(gold_award))
+		for index, temp := range gold_award {
+			data, _ := strconv.Atoi(temp)
+			plunderAwardEx.GoldAward[index] = int32(data)
+		}
+
+		soldier_award := strings.Split(v.SoldierAward, ";")
+		soldier_random := strings.Split(soldier_award[1], ",")
+		num, _ := strconv.Atoi(soldier_award[0])
+		min, _ := strconv.Atoi(soldier_random[0])
+		max, _ := strconv.Atoi(soldier_random[0])
+		plunderAwardEx.SoldierAward.Num = int32(num)
+		plunderAwardEx.SoldierAward.Flow = make([]int32, 2)
+		plunderAwardEx.SoldierAward.Flow[0] = int32(min)
+		plunderAwardEx.SoldierAward.Flow[1] = int32(max)
+
+		hero_pool := strings.Split(v.HeroPool, ",")
+		plunderAwardEx.HeroPool = make([]int32, len(hero_pool))
+		for index, temp := range hero_pool {
+			data, _ := strconv.Atoi(temp)
+			plunderAwardEx.HeroPool[index] = int32(data)
+		}
+
+		hero_award := strings.Split(v.HeroAward, ";")
+		hero_random := strings.Split(hero_award[1], ",")
+		num, _ = strconv.Atoi(hero_award[0])
+		min, _ = strconv.Atoi(hero_random[0])
+		max, _ = strconv.Atoi(hero_random[0])
+		plunderAwardEx.HeroAward.Num = int32(num)
+		plunderAwardEx.HeroAward.Flow = make([]int32, 2)
+		plunderAwardEx.HeroAward.Flow[0] = int32(min)
+		plunderAwardEx.HeroAward.Flow[1] = int32(max)
+
+		PlunderAwardExmap[k] = plunderAwardEx
+	}
+}

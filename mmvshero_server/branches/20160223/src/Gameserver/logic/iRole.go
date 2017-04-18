@@ -1,0 +1,383 @@
+package logic
+
+import (
+	"common"
+	"common/protocol"
+)
+
+type IRole interface {
+	GetSid() int64
+	GetUid() int64
+
+	SetNickname(name string) common.RetCode
+	GetNickname() string
+
+	GetLv() int32
+
+	AddExp(value int32, is_notify bool, is_save bool)
+	GetExp() int32
+
+	EditOrder(value int32, is_notify bool, is_save bool)
+	AddOrder(value int32, is_notify bool, is_save bool)
+	CostOrder(value int32, is_notify bool, is_save bool)
+	IsEnoughOrder(value int32) bool
+	GetOrder() int32
+	AddOrderBuynum(is_notify bool, is_save bool)
+	ResetOrderBuynum(is_notify bool, is_save bool)
+	GetOrderBuynum() int32
+
+	EditSpirit(value int32, is_notify bool, is_save bool)
+	AddSpirit(value int32, is_notify bool, is_save bool)
+	CostSpirit(value int32, is_notify bool, is_save bool)
+	IsEnoughSpirit(value int32) bool
+	GetSpirit() int32
+	AddSpiritBuynum(is_notify bool, is_save bool)
+	ResetSpiritBuynum(is_notify bool, is_save bool)
+	GetSpiritBuynum() int32
+
+	EditSoul(value int64, is_notify bool, is_save bool)
+	AddSoul(value int32, is_notify bool, is_save bool)
+	IsEnoughSoul(value int32) bool
+	ResetSoul(is_notify bool, is_save bool)
+	CostSoul(value int32, is_notify bool, is_save bool)
+	GetSoul() int64
+
+	EditBlood(value int64, is_notify bool, is_save bool)
+	AddBlood(value int32, is_notify bool, is_save bool)
+	IsEnoughBlood(value int32) bool
+	ResetBlood(is_notify bool, is_save bool)
+	CostBlood(value int32, is_notify bool, is_save bool)
+	GetBlood() int64
+
+	EditStone(value int32, is_notify bool, is_save bool)
+	AddStone(value int32, is_notify bool, is_save bool)
+	CostStone(value int32, is_notify bool, is_save bool)
+	IsEnoughStone(value int32) bool
+	GetStone() int32
+
+	EditGold(value int32, is_notify bool, is_save bool)
+	AddGold(value int32, is_notify bool, is_save bool)
+	EditFreeGold(value int32, is_notify bool, is_save bool)
+	AddFreeGold(value int32, is_notify bool, is_save bool)
+	IsEnoughGold(value int32) bool
+	ResetGold(is_notify bool, is_save bool)
+	ResetFreeGold(is_notify bool, is_save bool)
+	CostGold(value int32, is_notify bool, is_save bool)
+	GetGold() int32
+
+	AddTrophy(value int32, is_notify bool, is_save bool)
+	ResetTrophy(is_notify bool, is_save bool)
+	SubTrophy(value int32, is_notify bool, is_save bool)
+	GetTrophy() int32
+
+	SetLeagueLv(lv int32, is_notify bool, is_save bool)
+	GetLeagueLv() int32
+
+	AddAttackWinCount(is_save bool)
+	GetAttackWinCount() int32
+
+	AddDefenceWinCount(is_save bool)
+	GetDefenceWinCount() int32
+
+	AddShield(shield_time int64, is_notify bool, is_save bool)
+	GetShield() int64
+	IsShield() bool
+
+	SetVip(vip_timestamp int64, is_notify bool, is_save bool)
+	IsVip() bool
+
+	CostChatFreeTime(is_notify bool, is_save bool) bool
+
+	GetMagicQueue() (int32, int64)
+	ResetMagicQueue(is_save bool)
+	SetMagicQueue(magic_type int32, magic_id int64, is_save bool) bool
+
+	SetNewPlayerGuideStep(step int32, is_save bool)
+	GetLoginTime() int64
+
+	OfflineRole(role_uid int64) IRole
+	OfflineRoleBase(role_uid int64) IRoleBase
+	OfflineRoleFight(role_uid int64) IRoleFight
+	OfflineRolePvp(role_uid int64) IRolePvp
+
+	FillMapFightInfo() *protocol.MapFightInfo
+
+	StaticPayLog(paytype int32, scheme_id int32, gold int32)
+	Offline()
+
+	//魔王
+	GetMapSize() (int32, int32)
+	GetPopLimit() int32
+	GetDigLimit() int32
+	GetEvoSpeedLimit() int32
+	GetPvpLimit() int32
+	GetPvpInterval() int32
+	GetPvpSearchNeedBlood() int32
+	GetMagicHeroLimit() int32
+	GetFortressLimit() int32
+	GetKingLv() int32
+	KingAddLv() common.RetCode
+	KingSkillStartLvUp(skillId int32, usedCoin bool) common.RetCode
+	KingSkillLvUpRemoveTime(skillId int32) common.RetCode
+	KingSkillCancelLvUp(skillId int32) common.RetCode
+	KingSkillFinishLvUp(skillId int32) common.RetCode
+	KingAddLvGm(addLv int32) common.RetCode
+	KingEditSkillLv(skillId int32, lv int32) common.RetCode
+	KingGetQueueId() int32
+
+	//道具
+	ItemAdd(scheme_id int32, num int32, is_notify bool) common.RetCode
+	ItemAddByUid(uid int64, num int32, is_notify bool) common.RetCode
+	ItemCost(scheme_id int32, num int32, is_notify bool) common.RetCode
+	ItemCostByUid(uid int64, num int32, is_notify bool) common.RetCode
+	ItemFixNum(uid int64, num int32, is_notify bool) common.RetCode
+	ItemIsEnough(scheme_id int32, num int32) bool
+	ItemIsEnoughByUid(uid int64, num int32) bool
+	ItemGet(item_uid int64) IItem
+	ItemUse(items []*protocol.ItemUseInfo, user_type protocol.ItemUserType, user_id int64) common.RetCode
+
+	//魔物
+	SoldierCreateFree(soldierId, num int32) bool
+	SoldierEditNum(soldierId, num int32) bool
+	//SoldierCreate(soldierId int32, num int32) (bool, int32)
+	SoldierLevelUp(soldierId int32, addedExp int32) bool
+	SoldierEditLv(soldierId int32, lv int32) bool
+	SoldierUpgrade(soldierId int32, heroUid int64, usedCoin bool) (common.RetCode, int64, int64)
+	SoldierCutDownUpgradeTime(soldierId int32) (common.RetCode, int64)
+	SoldierRemoveUpgradeTime(soldierId int32, fromSoldierUpgrade bool) bool
+	SoldierFinishUpgrade(soldierId int32) (bool, int32)
+	SoldierSkillLevelUp(soldierId int32, skillId int32) bool
+	SoldierEditSkillLv(soldierId int32, skillId int32, lv int32) bool
+	SoldierDispatch(soldierId int32) ISoldier
+	SoldierDispatchByAutoId(soldierId int32, autoId int64) ISoldier
+	SoldierWithdraw()
+	SoldierGetInMap(autoId int32) ISoldier
+	SoldierGetInCamp(id int32) ISoldier
+	SoldierNum(schemeId int32) int32
+	SoldierUnlock(soldierId int32)
+	SoldierFreshLv(kingLv int32)
+	//SoldierDelete(schemeId int32, num int32, isRelatedToMap bool) bool
+	FillAllSoldiersInfo() *protocol.AllSoldiers
+	SoldierSendAll()
+	SoldierAllEvents() *protocol.AllSoldiersEvents
+	SoldierEventDealWith(eventType, eventId int32) bool
+
+	//魔使
+	HeroGet(hero_uid int64) IHero
+	HeroCost(hero_uid int64, is_notify bool)
+	HeroObtain(hero_scheme_id int32, hero_lv int32, hero_rank int32, is_notify bool) int64
+	HeroCreateStart(create_id int32, is_notify bool) common.RetCode
+	HeroCreateFinish(is_notify bool) common.RetCode
+	HeroCreateAddOrder(order int32, is_notify bool) bool
+	HeroCreateAddMagic(magic int32, is_notify bool) bool
+	HeroCreateShock(is_notify bool) common.RetCode
+	HeroCreateGiveUp(is_notify bool) common.RetCode
+	HeroFreshLv(kingLv int32)
+
+	HeroLvUp(hero_uid int64, add_exp int32, is_notify bool) common.RetCode
+	HeroSkillLvUp(hero_uid int64, skill_id int32, is_notify bool) common.RetCode
+	HeroEvoStart(hero_uid int64, need_hero_uids []int64, use_money bool, is_notify bool) common.RetCode
+	HeroEvoFinish(use_money bool, is_notify bool) common.RetCode
+	HeroEvoSpeedUp(is_notify bool) common.RetCode
+	HeroMix(hero_uid int64, hero_uids []int64, is_notify bool) common.RetCode
+	HeroSize() int32
+	HeroFind(hero_uid int64) bool
+	HeroPopulation(hero_uid int64) int32
+	HeroEditLv(hero_uid int64, lv int32, is_notify bool) common.RetCode
+	HeroEditRank(hero_uid int64, rank int32, is_notify bool) common.RetCode
+	HeroEditSkillLv(hero_uid int64, skill_id int32, lv int32, is_notify bool) common.RetCode
+
+	//建筑
+	BuildingObtain(scheme_id int32, lv int32, is_notify bool) int64
+	BuildingSize() int32
+	BuildingFind(building_uid int64) bool
+	BuildingStartLvUp(building_uid int64, usedCoin bool, is_notify bool) common.RetCode
+	BuildingCancelLvUp(building_uid int64, is_notify bool) common.RetCode
+	BuildingFinishLvUp(building_uid int64, is_notify bool) common.RetCode
+	BuildingEditLv(building_uid int64, lv int32, is_notify bool) common.RetCode
+	BuildingLvUpRemoveTime(building_uid int64, is_notify bool) common.RetCode
+	BuildingCollect(building_uid int64, is_notify bool) common.RetCode
+	BuildingGetQueueUid() int64
+
+	//装饰
+	DecorationObtain(scheme_id int32, num int32) common.RetCode
+	DecorationObtainByMap(scheme_id int32, pos_x int32, pos_y int32) common.RetCode
+	DecorationSize(scheme_id int32) int32
+
+	//地图
+	MapSetPoint(x int32, y int32, base_type int32, obj_type int32, id int64)
+	MapFindHero(uid int64) bool
+	MapReFresh(map_info []*protocol.MapGridInfo, map_point_active []int32) common.RetCode
+	MapExpand(x_size int32, y_size int32) error
+	//MapRemoveDeathSoldier(auto_id int64)
+	MapInfo(role_uid int64) (common.RetCode, *protocol.MapFightInfo)
+	MapFreshObstacle(scheme_id int32, pos_x int32, pos_y int32) common.RetCode
+	MapRemoveObstacle(scheme_id int32, pos_x int32, pos_y int32) common.RetCode
+	MapUnLockPoint(pointId int32) common.RetCode
+
+	//关卡
+	StageAll() *protocol.MsgStageAllRet
+	StageBegin(schemeId int32) bool
+	StageFinish(schemeId int32, isPassed bool, stars map[int32]int32, isSweep bool, sweepTimes int32) *protocol.MsgStageFinishRet
+	StagePlayAnimation(int32) bool
+
+	//任务
+	MissionAll() *protocol.MsgMissionAllRet
+	MissionFinish(schemeId int32) common.RetCode
+	MissionAddNum(schemeId, num, targetLevel int32) (common.RetCode, int32)
+	//成就
+	AchievementAddNum(schemeId, num int32, isReplace bool) (common.RetCode, int32)
+	AchievementFinish(schemeId int32) common.RetCode
+	AchievementAll() *protocol.MsgAchievementAllRet
+	//副本
+	FbAll() *protocol.MsgFbAllRet
+	FbBegin(schemeId, difficulty int32) bool
+	FbFinish(schemeId int32, difficulty int32, isPassed bool, caughtNpcs []*protocol.CaughtNpc) *protocol.MsgFbFinishRet
+
+	//Pvp
+	PvpFillFightInfo() *protocol.MsgPvpMatchRet
+	PvpSetIsFight(is_fight bool)
+	PvpIsFight() bool
+	PvpFightHeroList() []int64
+	PvpQuery() (int32, common.RetCode)
+	PvpRankInfo() (int32, []*protocol.PvpRankInfo, []*protocol.PvpRankInfo, common.RetCode)
+	PvpPrepare(fight_hero_list []int64) common.RetCode
+	PvpMatch() *protocol.MsgPvpMatchRet
+	PvpMatchById(uid int64) *protocol.MsgPvpMatchRet
+	PvpStart() common.RetCode
+	PvpGiveUp() (common.RetCode, int32, int32)
+	PvpFinish(req *protocol.MsgPvpFinishReq) (common.RetCode, int32, int32)
+
+	//Sign
+	SignInit() *protocol.SignInfo
+	SignIn() (common.RetCode, *protocol.SignInfo)
+	FixVipSignIn()
+
+	//Mall
+	FillMallInfo() []*protocol.MallInfo
+	MallBuy(id int32) (common.RetCode, int32, int64)
+
+	//friend
+	FriendAll() *protocol.MsgFriendAllRet
+	FriendSearch(alias string) (*protocol.Friend, common.RetCode)
+	FriendDelete(friendIds []int64) common.RetCode
+	FriendSendExcitation(friendIds []int64) int32
+	FriendUseExcitation(friendIds []int64) int32
+	FriendSavePvpResult(friendId int64, attackerWin bool, record string) common.RetCode
+
+	FriendRequestAll() *protocol.MsgFriendRequestAllRet
+	FriendRequestAdd(friendId int64) common.RetCode
+	FriendRequestDealWith(friendId int64, isAgreed bool) common.RetCode
+	FriendInviteAddId(inviteId int64) common.RetCode
+
+	//Chat
+	ChatQuery(chat_type protocol.ChatType) (common.RetCode, []*protocol.ChatInfo)
+	Chat(chat_type protocol.ChatType, role_uid int64, content []byte) (common.RetCode, *protocol.ChatInfo)
+
+	//FightReport
+	FightReportQuery() []*protocol.FightReportInfo
+	FightReportQueryById(uid int64) (common.RetCode, *protocol.FightReportInfo)
+	FightReportAdd(active_uid int64, passive_uid int64, info *protocol.FightReportInfo)
+	FightReportUpdate(report_uid int64, info *protocol.FightReportInfo)
+
+	//联盟号 别名
+	GetAlias() string
+	GetAliasByRoleId(roleId int64) string
+	GetRoleIdByAlias(alias string) int64
+
+	//GM
+	GmProcess(is_notify bool)
+}
+
+type IRoleBase interface {
+	GetUid() int64
+	GetNickname() string
+	GetLv() int32
+	GetSoul() int64
+	GetBlood() int64
+	GetGold() int32
+	GetTrophy() int32
+	GetLeagueLv() int32
+	GetAttackWinCount() int32
+	GetDefenceWinCount() int32
+	IsShield() bool
+	IsVip() bool
+	GetLoginTime() int64
+}
+
+type IRoleFight interface {
+	GetUid() int64
+	GetNickname() string
+	GetLv() int32
+
+	AddSoul(value int32, is_notify bool, is_save bool)
+	IsEnoughSoul(value int32) bool
+	ResetSoul(is_notify bool, is_save bool)
+	CostSoul(value int32, is_notify bool, is_save bool)
+	GetSoul() int64
+
+	AddBlood(value int32, is_notify bool, is_save bool)
+	IsEnoughBlood(value int32) bool
+	ResetBlood(is_notify bool, is_save bool)
+	CostBlood(value int32, is_notify bool, is_save bool)
+	GetBlood() int64
+
+	GetGold() int32
+
+	AddTrophy(value int32, is_notify bool, is_save bool)
+	ResetTrophy(is_notify bool, is_save bool)
+	SubTrophy(value int32, is_notify bool, is_save bool)
+	GetTrophy() int32
+
+	SetLeagueLv(lv int32, is_notify bool, is_save bool)
+	GetLeagueLv() int32
+
+	AddAttackWinCount(is_save bool)
+	GetAttackWinCount() int32
+
+	AddDefenceWinCount(is_save bool)
+	GetDefenceWinCount() int32
+
+	AddShield(shield_time int64, is_notify bool, is_save bool)
+	GetShield() int64
+	IsShield() bool
+
+	FillMapFightInfo() *protocol.MapFightInfo
+
+	//魔王
+	GetKingLv() int32
+
+	//Pvp
+	PvpFillFightInfo() *protocol.MsgPvpMatchRet
+	PvpFightHeroList() []int64
+
+	GetLoginTime() int64
+}
+
+type IRolePvp interface {
+	GetUid() int64
+	GetNickname() string
+	GetLv() int32
+
+	AddTrophy(value int32, is_notify bool, is_save bool)
+	ResetTrophy(is_notify bool, is_save bool)
+	SubTrophy(value int32, is_notify bool, is_save bool)
+	GetTrophy() int32
+
+	SetLeagueLv(lv int32, is_notify bool, is_save bool)
+	GetLeagueLv() int32
+
+	AddAttackWinCount(is_save bool)
+	GetAttackWinCount() int32
+
+	AddDefenceWinCount(is_save bool)
+	GetDefenceWinCount() int32
+
+	AddShield(shield_time int64, is_notify bool, is_save bool)
+	GetShield() int64
+	IsShield() bool
+
+	//Pvp
+	PvpFillFightInfo() *protocol.MsgPvpMatchRet
+	PvpFightHeroList() []int64
+}

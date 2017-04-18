@@ -1,0 +1,472 @@
+package plunder
+
+import (
+	. "Gameserver/logic"
+	. "common/cache"
+	"common/define"
+	"common/scheme"
+	"fmt"
+	. "galaxy"
+	. "github.com/wangjia184/sortedset"
+	"math"
+	"sync"
+	"time"
+
+	"github.com/golang/protobuf/proto"
+)
+
+const (
+	poolKey     = "plunderPool"           //set ,value: (%v:%v)
+	poolNodeKey = "plunderPoolNode:%v:%v" //key (roleId,teamId
+)
+
+var plunderPool *Pool
+var outerPool *SortedSet // score endtime
+
+var allLockers map[string]*sync.RWMutex
+
+type Pool struct {
+	data *SortedSet
+}
+
+type Node struct {
+	PlunderPoolNodeCache
+}
+
+func (this *Pool) Init() {
+	this.data = New()
+	outerPool = New()
+	allLockers = make(map[string]*sync.RWMutex)
+	this.load()
+	go this.run()
+}
+
+func (this *Pool) load() error {
+	//获取所有keys
+	resp, err := RedisCmd("SMEMBERS", poolKey)
+	if err != nil {
+		LogError(err)
+		return err //没有
+	}
+
+	_keys, _ := resp.List()
+	for _, key := range _keys {
+		//获取数据
+		resp, err := RedisCmd("GET", key)
+		if err != nil {
+			LogError(err)
+			return err //没有
+		}
+		if buff, _ := resp.Bytes(); buff != nil {
+			nodeCache := PlunderPoolNodeCache{}
+			poolNode := &Node{}
+			err = proto.Unmarshal(buff, &nodeCache)
+			poolNode.PlunderPoolNodeCache = nodeCache
+			if poolNode.checkExpire() {
+				RedisCmd("SREM", poolKey, key)
+			} else if poolNode.checkLock() {
+				outerPool.AddOrUpdate(fmt.Sprintf("%v:%v", poolNode.GetRoleUid(), poolNode.GetTeamId()), SCORE(poolNode.GetEndTime()), poolNode)
+			} else {
+				this.data.AddOrUpdate(fmt.Sprintf("%v:%v", poolNode.GetRoleUid(), poolNode.GetTeamId()), SCORE(poolNode.GetScore()), poolNode)
+			}
+
+		} else {
+			RedisCmd("SREM", poolKey, key)
+		}
+	}
+
+	if err != nil {
+		LogError(err)
+	}
+
+	return nil
+}
+
+func (this *Pool) add(roleUid, teamId, score, endTime int64) {
+	key := fmt.Sprintf("%v:%v", roleUid, teamId)
+
+	if _, ok := allLockers[key]; !ok {
+		allLockers[key] = &sync.RWMutex{}
+	}
+
+	allLockers[key].Lock()
+
+	poolNode := &Node{}
+	poolNode.SetRoleUid(roleUid)
+	poolNode.SetTeamId(teamId)
+	poolNode.SetScore(score)
+	poolNode.SetEndTime(endTime)
+
+	this.data.AddOrUpdate(key, SCORE(poolNode.GetScore()), poolNode)
+	poolNode.save()
+
+	allLockers[key].Unlock()
+}
+
+func (this *Pool) remove(roleUid, teamId int64) bool {
+	key := fmt.Sprintf("%v:%v", roleUid, teamId)
+
+	allLockers[key].Lock()
+
+	this.data.Remove(key)
+	outerPool.Remove(key)
+
+	allLockers[key].Unlock()
+	delete(allLockers, key)
+
+	//从数据库中删除
+	temp := fmt.Sprintf(poolNodeKey, roleUid, teamId)
+	if _, err := RedisCmd("DEL", temp); err != nil {
+		LogError(err)
+		return false
+	}
+
+	if _, err := RedisCmd("SREM", poolKey, temp); err != nil {
+		LogError(err)
+		return false
+	}
+	return true
+}
+
+func (this *Pool) run() {
+	timer := time.NewTicker(time.Second * 1)
+	for {
+		select {
+		case <-timer.C:
+			this.loop()
+		}
+	}
+}
+
+func (this *Pool) loop() {
+	for {
+		min := outerPool.PeekMin()
+		if min == nil {
+			return
+		}
+
+		endTime := int64(min.Score())
+		if Time() >= endTime {
+			if node, ok := min.Value.(Node); ok {
+				key := fmt.Sprintf("%v:%v", node.GetRoleUid(), node.GetTeamId())
+				allLockers[key].Lock()
+				min = outerPool.GetByKey(key)
+				node = min.Value.(Node)
+
+				node.SetSearchLock(0)
+				node.SetBattleLock(0)
+				node.SetPostWarLock(0)
+				node.SetAttackerId(0)
+
+				this.data.AddOrUpdate(min.Key(), SCORE(node.GetScore()), node)
+				outerPool.Remove(min.Key())
+				node.save()
+
+				allLockers[key].Unlock()
+			}
+		} else {
+			return
+		}
+	}
+}
+
+//search lock
+func (this *Pool) getByScoreRange(totalExp, attackerId int64) *Node {
+	score := SCORE(totalExp)
+
+	limitLeft := int(scheme.Commonmap[define.PlunderSearchDownLimit].Value)
+	limitRight := int(scheme.Commonmap[define.PlunderSearchUpLimit].Value)
+
+	nodesLeft := this.data.GetByScoreRange(0, score, &GetByScoreRangeOptions{Limit: limitLeft, ExcludeEnd: true})
+	nodesRight := this.data.GetByScoreRange(score, math.MaxInt32, &GetByScoreRangeOptions{Limit: limitRight})
+
+	nodes := append(nodesLeft, nodesRight...)
+
+	var i int64 = 0
+	for {
+		if i > 0 {
+			nodes = append(nodes[:i], nodes[i+1:]...)
+		}
+
+		nodesLen := len(nodes)
+		if nodesLen <= 0 {
+			return nil
+		}
+
+		i := Rand(0, int64(nodesLen)-1)
+
+		temp := nodes[i]
+		allLockers[temp.Key()].Lock()
+
+		temp = this.data.GetByKey(temp.Key())
+		if temp != nil {
+			if n, ok := temp.Value.(Node); ok {
+				if n.GetRoleUid() == attackerId {
+					continue
+				}
+
+				if Time() >= n.GetEndTime() {
+					this.remove(n.GetRoleUid(), n.GetTeamId())
+					continue
+				}
+
+				n.SetSearchLock(Time() + int64(scheme.Commonmap[define.PlunderSearchLockTime].Value))
+				n.SetAttackerId(attackerId)
+
+				outerPool.AddOrUpdate(temp.Key(), SCORE(n.GetSearchLock()), n)
+				this.data.Remove(temp.Key())
+				n.save()
+
+				allLockers[temp.Key()].Unlock()
+				return &n
+			}
+		}
+		allLockers[temp.Key()].Unlock()
+	}
+
+	return nil
+}
+
+func (this *Pool) checkLock(roleUid, teamId int64) bool {
+	key := fmt.Sprintf("%v:%v", roleUid, teamId)
+	allLockers[key].RLock()
+	defer allLockers[key].RUnlock()
+
+	if temp := outerPool.GetByKey(key); temp != nil {
+		if node, ok := temp.Value.(Node); ok {
+			return node.checkLock()
+		}
+	}
+
+	return false
+}
+
+func (this *Pool) getSearchLock(roleUid, teamId int64) int64 {
+	key := fmt.Sprintf("%v:%v", roleUid, teamId)
+	allLockers[key].RLock()
+	defer allLockers[key].RUnlock()
+
+	if temp := outerPool.GetByKey(key); temp != nil {
+		if node, ok := temp.Value.(Node); ok {
+			return node.GetSearchLock()
+		}
+	}
+
+	return 0
+}
+
+func (this *Pool) getBattleLock(roleUid, teamId int64) int64 {
+	key := fmt.Sprintf("%v:%v", roleUid, teamId)
+	allLockers[key].RLock()
+	defer allLockers[key].RUnlock()
+
+	if temp := outerPool.GetByKey(key); temp != nil {
+		if node, ok := temp.Value.(Node); ok {
+			return node.GetBattleLock()
+		}
+	}
+
+	return 0
+}
+
+func (this *Pool) getPostWarLock(roleUid, teamId int64) int64 {
+	key := fmt.Sprintf("%v:%v", roleUid, teamId)
+	allLockers[key].RLock()
+	defer allLockers[key].RUnlock()
+
+	if temp := outerPool.GetByKey(key); temp != nil {
+		if node, ok := temp.Value.(Node); ok {
+			return node.GetPostWarLock()
+		}
+	}
+
+	return 0
+}
+
+//增加搜索锁定，复仇时使用
+//无搜索锁定和战斗锁定时有效
+func (this *Pool) addSearchLock(roleUid, teamId, attackerId int64) bool {
+	key := fmt.Sprintf("%v:%v", roleUid, teamId)
+	allLockers[key].Lock()
+	defer allLockers[key].Unlock()
+
+	inPool := true
+	temp := this.data.GetByKey(key)
+	if temp == nil {
+		temp = outerPool.GetByKey(key)
+		inPool = false
+	}
+
+	if node, ok := temp.Value.(Node); ok {
+		if node.GetSearchLock() != 0 && node.GetSearchLock() > Time() {
+			return false
+		}
+		if node.GetBattleLock() != 0 && node.GetBattleLock() > Time() {
+			return false
+		}
+
+		node.SetSearchLock(Time() + int64(scheme.Commonmap[define.PlunderSearchLockTime].Value))
+		node.SetAttackerId(attackerId)
+
+		outerPool.AddOrUpdate(temp.Key(), SCORE(node.GetSearchLock()), node)
+
+		if inPool {
+			this.data.Remove(temp.Key())
+		}
+
+		node.save()
+		return true
+	}
+
+	return false
+}
+
+func (this *Pool) addBattleLock(roleUid, teamId, attackerId int64) bool {
+	if attackerId == 0 {
+		return false
+	}
+
+	key := fmt.Sprintf("%v:%v", roleUid, teamId)
+	allLockers[key].Lock()
+	defer allLockers[key].Unlock()
+
+	if temp := outerPool.GetByKey(key); temp != nil {
+		if node, ok := temp.Value.(Node); ok {
+			if attackerId != node.GetAttackerId() {
+				return false
+			}
+
+			if node.GetSearchLock() != 0 && node.GetSearchLock() > Time() {
+				LostLockTime := scheme.Commonmap[define.PlunderLostLockTime].Value
+				battleLockTime := scheme.Commonmap[define.PlunderBattleLockTime].Value
+
+				node.SetBattleLock(Time() + int64(battleLockTime+LostLockTime))
+				node.SetSearchLock(0)
+				node.SetPostWarLock(0)
+				node.save()
+
+				outerPool.AddOrUpdate(key, SCORE(node.GetBattleLock()), node)
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func (this *Pool) addPostWarLock(roleUid, teamId, attackerId int64, win bool) bool {
+	if attackerId == 0 {
+		return false
+	}
+
+	time := scheme.Commonmap[define.PlunderLostLockTime].Value
+	if win {
+		time = scheme.Commonmap[define.PlunderWinLockTime].Value
+	}
+
+	key := fmt.Sprintf("%v:%v", roleUid, teamId)
+	allLockers[key].Lock()
+	defer allLockers[key].Unlock()
+
+	if temp := outerPool.GetByKey(key); temp != nil {
+		if node, ok := temp.Value.(Node); ok {
+			if attackerId != node.GetAttackerId() {
+				return false
+			}
+
+			//复仇时忽略
+			if node.GetBattleLock() != 0 && node.GetBattleLock() > Time() {
+				node.SetPostWarLock(Time() + int64(time))
+				node.SetSearchLock(0)
+				node.SetBattleLock(0)
+				node.SetAttackerId(0)
+				node.save()
+
+				outerPool.AddOrUpdate(key, SCORE(node.GetPostWarLock()), node)
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+//搜索锁定,战斗锁定时有效
+func (this *Pool) cancelMatch(roleUid, teamId, attackerId int64, addPostWarLock bool) bool {
+	key := fmt.Sprintf("%v:%v", roleUid, teamId)
+	allLockers[key].Lock()
+	defer allLockers[key].Unlock()
+
+	if temp := outerPool.GetByKey(key); temp != nil {
+		if node, ok := temp.Value.(Node); ok {
+			if attackerId != node.GetAttackerId() {
+				return false
+			}
+
+			if node.GetSearchLock() > Time() || node.GetBattleLock() > Time() {
+				node.SetSearchLock(0)
+				node.SetBattleLock(0)
+				node.SetAttackerId(0)
+
+				if addPostWarLock {
+					outerPool.AddOrUpdate(key, SCORE(node.GetPostWarLock()), node)
+				} else {
+					this.data.AddOrUpdate(key, temp.Score(), node)
+					outerPool.Remove(key)
+				}
+
+				node.save()
+				return true
+			}
+			return false
+		}
+	}
+	return true
+}
+
+//检查过期
+func (this *Node) checkExpire() bool {
+	if this.GetEndTime()-int64(scheme.Commonmap[define.PlunderBattleLockTime].Value) > Time() {
+		return true //已经过期
+	} else {
+		return false
+	}
+}
+
+//检查是否有锁
+func (this *Node) checkLock() bool {
+	if this.GetSearchLock() != 0 && this.GetSearchLock() > Time() {
+		return true
+	}
+
+	if this.GetBattleLock() != 0 && this.GetBattleLock() > Time() {
+		return true
+	}
+
+	if this.GetPostWarLock() != 0 && this.GetPostWarLock() > Time() {
+		return true
+	}
+
+	return false
+}
+
+func (this *Node) save() bool {
+	//添加到数据库
+	buff, err := proto.Marshal(&this.PlunderPoolNodeCache)
+	if err != nil {
+		LogError(err)
+		return false
+	}
+
+	temp := fmt.Sprintf(poolNodeKey, this.GetRoleUid(), this.GetTeamId())
+	if _, err = RedisCmd("SET", temp, buff); err != nil {
+		LogError(err)
+		return false
+	}
+
+	if _, err := RedisCmd("SADD", poolKey, temp); err != nil {
+		LogError(err)
+		return false
+	}
+	return true
+}

@@ -1,0 +1,49 @@
+package scheme
+
+import (
+	"encoding/json"
+	"fmt"
+	. "galaxy"
+	"os"
+)
+
+type Pvp struct {
+	 Id 	 int32
+	 Name 	 int32
+	 LvUpTrophy 	 int32
+	 LvDownTrophy 	 int32
+	 RewardStoneWin 	 int32
+	 RewardStoneLose 	 int32
+
+}
+
+var Pvps []*Pvp
+var Pvpmap map[int32]*Pvp
+
+func LoadPvp(filepath string) {
+    fileName := "Pvp.json"
+	file, err := os.Open(fmt.Sprintf("%s/%s", filepath, fileName))
+	if err != nil {
+		panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+	}
+	defer file.Close()
+
+	dec := json.NewDecoder(file)
+	_, err = dec.Token()
+	if err != nil {
+		panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+	}
+
+	Pvpmap = make(map[int32]*Pvp)
+	for dec.More() {
+		var temp Pvp
+		err := dec.Decode(&temp)
+		if err != nil {
+			panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+		}
+		Pvps = append(Pvps, &temp)
+		Pvpmap[temp.Id] = &temp
+	}
+
+	LogInfo("Load Pvp Scheme Success!")
+}

@@ -1,0 +1,78 @@
+package rolestate
+
+import (
+	. "common/cache"
+	"fmt"
+	. "galaxy"
+
+	"github.com/golang/protobuf/proto"
+)
+
+const (
+	cache_role_state_key_t = "Role:%v:State"
+)
+
+func genRoleStateKey(role_uid int64) string {
+	return fmt.Sprintf(cache_role_state_key_t, role_uid)
+}
+
+type RoleState struct {
+	role_uid int64
+	RoleStateCache
+}
+
+func NewRoleState(role_uid int64) (*RoleState, error) {
+	obj := new(RoleState)
+	obj.role_uid = role_uid
+	if err := obj.load(); err != nil {
+		return nil, err
+	}
+	return obj, nil
+}
+
+func (this *RoleState) load() error {
+	resp, err := GxService().Redis().Cmd("GET", genRoleStateKey(this.role_uid))
+	if err != nil {
+		LogError(err)
+		return err
+	}
+
+	content, _ := resp.Bytes()
+	if content != nil {
+		err = proto.Unmarshal(content, &this.RoleStateCache)
+		if err != nil {
+			LogError(err)
+			return err
+		}
+	} else {
+		this.RoleStateCache.SetOnlineServer(0)
+	}
+
+	return nil
+}
+
+func (this *RoleState) save() error {
+	content, err := proto.Marshal(&this.RoleStateCache)
+	if err != nil {
+		LogError(err)
+		return err
+	}
+
+	if _, err := GxService().Redis().Cmd("SET", genRoleStateKey(this.role_uid), content); err != nil {
+		LogError(err)
+		return err
+	}
+
+	return nil
+}
+
+func (this *RoleState) SetOnlineServer(serverId int32, is_save bool) {
+	this.RoleStateCache.SetOnlineServer(serverId)
+	if is_save {
+		this.save()
+	}
+}
+
+func (this *RoleState) GetOnlineServer() int32 {
+	return this.RoleStateCache.GetOnlineServer()
+}

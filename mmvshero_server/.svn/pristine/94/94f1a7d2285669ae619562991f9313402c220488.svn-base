@@ -1,0 +1,9 @@
+package logic
+
+type ISoldier interface {
+	GetSchemeId() int32
+	GetNum() int32
+	GetLevel() int32
+	GetStage() int32
+	GetSkillLevel() map[int32]int32
+}

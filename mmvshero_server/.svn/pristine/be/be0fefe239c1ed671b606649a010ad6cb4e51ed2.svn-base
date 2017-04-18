@@ -1,0 +1,76 @@
+syntax="proto2";
+
+package protocol;
+
+import "award.proto";
+
+message ChallengeWaveInfo
+{
+	required int32 wave = 1;
+	required int32 id = 2;
+}
+
+message ChallengeLayerInfo
+{
+	required int32 layer = 1;
+	required int32 layer_id = 2;
+	repeated ChallengeWaveInfo waves = 3;
+	required int32 ban_building_type = 4;
+	required int32 ban_soldier_id = 5;
+	required int32 ban_kingskill_id = 6;
+	repeated AwardInfo awards = 7;
+}
+
+//闯关模式 查询
+message MsgChallengeQueryReq
+{
+
+}
+
+message MsgChallengeQueryRet
+{
+	required int32 challenge_count = 1;
+	required int32 challenge_chance = 2;
+	required int32 cur_layer = 3;
+	required int32 challenge_reset_time = 4;
+	repeated ChallengeLayerInfo layers = 5;
+}
+
+//闯关模式 开战
+message MsgChallengeStartFightReq
+{
+	required int32 layer = 1;
+}
+
+message MsgChallengeStartFightRet
+{
+	required int32 retcode = 1;
+}
+
+//闯关模式 战果
+message MsgChallengeFightResultReq
+{
+	required int32 layer = 1;
+	required bool is_success = 2;
+}
+
+message MsgChallengeFightResultRet
+{
+	required int32 retcode = 1;
+	required int32 challenge_chance = 2;
+}
+
+//闯关模式 重置
+message MsgChallengeResetReq
+{
+
+}
+
+message MsgChallengeResetRet
+{
+	required int32 retcode = 1;
+	required int32 challenge_count = 2;
+	required int32 challenge_chance = 3;
+	required int32 challenge_reset_time = 4;
+	repeated ChallengeLayerInfo layers = 5;
+}

@@ -1,0 +1,406 @@
+package arena
+
+import (
+	. "Gameserver/logic"
+	"Gameserver/logic/award"
+	"common"
+	. "common/cache"
+	"common/define"
+	"common/protocol"
+	"common/scheme"
+	"fmt"
+	. "galaxy"
+	"strconv"
+	"strings"
+
+	"github.com/golang/protobuf/proto"
+)
+
+const (
+	cache_arena_key_t = "Role:%v:Arena"
+	rank_limit        = 100
+)
+
+func GenArenaCacheKey(role_uid int64) string {
+	return fmt.Sprintf(cache_arena_key_t, role_uid)
+}
+
+func parse_id_name_to_sortkey(role_uid int64, name string) string {
+	return fmt.Sprintf("%v:%v", role_uid, name)
+}
+
+func parse_sortkey_to_id_name(sort_key string) (int64, string) {
+	strs := strings.Split(sort_key, ":")
+	uid, _ := strconv.Atoi(strs[0])
+	name := strs[1]
+	return int64(uid), name
+}
+
+func parse_score_lv_to_sortvalue(score int32, lv int32) int64 {
+	return int64(score)*100 + int64(lv)
+}
+
+func parse_sortvalue_to_score_lv(sort_value int64) (score int32, lv int32) {
+	return int32(sort_value / 100), int32(sort_value % 100)
+}
+
+type ArenaSys struct {
+	owner IRole
+	ArenaCache
+	cache_key string
+}
+
+func (this *ArenaSys) Init(owner IRole) {
+	this.owner = owner
+
+	this.ArenaCache.SetBossVersion(0)
+	this.ArenaCache.SetPoint(0)
+	this.ArenaCache.SetBestScore(0)
+	this.ArenaCache.SetShopVersion(0)
+	this.ArenaCache.ShopRecords = make(map[int32]int32)
+
+	this.cache_key = fmt.Sprintf(cache_arena_key_t, this.owner.GetUid())
+}
+
+func (this *ArenaSys) Load() error {
+	resp, err := GxService().Redis().Cmd("GET", this.cache_key)
+	if err != nil {
+		LogError(err)
+		return err
+	}
+
+	if buf, _ := resp.Bytes(); buf != nil {
+		err := proto.Unmarshal(buf, &this.ArenaCache)
+		if err != nil {
+			LogError(err)
+			return err
+		}
+	}
+
+	if this.ArenaCache.ShopRecords == nil {
+		this.ArenaCache.ShopRecords = make(map[int32]int32)
+	}
+
+	return nil
+}
+
+func (this *ArenaSys) Save() error {
+	buf, err := proto.Marshal(&this.ArenaCache)
+	if err != nil {
+		LogFatal(err)
+		return err
+	}
+
+	if _, err := GxService().Redis().Cmd("SET", this.cache_key, buf); err != nil {
+		LogFatal(err)
+		return err
+	}
+	return nil
+}
+
+func (this *ArenaSys) check_reset() (boss_change bool, shop_change bool) {
+	boss_change = false
+	shop_change = false
+	if this.GetBossVersion() != arena_manager.GetBossVersion() {
+		this.ArenaCache.SetBossVersion(arena_manager.GetBossVersion())
+		this.ArenaCache.SetBestScore(0)
+		boss_change = true
+		LogDebug("BossAward Change")
+	}
+
+	if this.GetShopVersion() != arena_manager.GetShopVersion() {
+		this.ArenaCache.SetShopVersion(arena_manager.GetShopVersion())
+		this.ArenaCache.ShopRecords = make(map[int32]int32)
+		shop_change = true
+		LogDebug("ShopAward Change")
+	}
+
+	if boss_change || shop_change {
+		this.Save()
+	}
+	return
+}
+
+func (this *ArenaSys) parseAwardInfo(arena_award []*ArenaAward) (awards []*protocol.AwardInfo) {
+	awards = make([]*protocol.AwardInfo, len(arena_award))
+	for i, v := range arena_award {
+		data := new(protocol.AwardInfo)
+		data.SetType(v.GetType())
+		data.SetCode(v.GetCode())
+		data.SetAmount(v.GetAmount())
+		awards[i] = data
+	}
+	return
+}
+
+func (this *ArenaSys) EditArenaPoint(value int32, is_notify bool, is_save bool) {
+	if value < 0 {
+		return
+	}
+
+	this.ArenaCache.SetPoint(value)
+
+	if is_notify {
+		this.owner.SendUpdateinfo(protocol.RoleAttrType_ArenaPoint, int64(this.ArenaCache.GetPoint()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *ArenaSys) AddArenaPoint(value int32, is_notify bool, is_save bool) {
+	if value <= 0 {
+		return
+	}
+
+	this.ArenaCache.SetPoint(this.ArenaCache.GetPoint() + value)
+
+	if is_notify {
+		this.owner.SendUpdateinfo(protocol.RoleAttrType_ArenaPoint, int64(this.ArenaCache.GetPoint()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *ArenaSys) CostArenaPoint(value int32, is_notify bool, is_save bool) {
+	if value <= 0 {
+		return
+	}
+
+	this.ArenaCache.SetPoint(this.ArenaCache.GetPoint() - value)
+	if this.ArenaCache.GetPoint() < 0 {
+		this.ArenaCache.SetPoint(0)
+	}
+
+	if is_notify {
+		this.owner.SendUpdateinfo(protocol.RoleAttrType_ArenaPoint, int64(this.ArenaCache.GetPoint()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *ArenaSys) IsEnoughArenaPoint(value int32) bool {
+	return this.ArenaCache.GetPoint() >= value
+}
+
+func (this *ArenaSys) ArenaQuery() (ret *protocol.MsgArenaQueryRet) {
+	ret = new(protocol.MsgArenaQueryRet)
+	ret.SetRetcode(int32(common.RetCode_Success))
+	ret.SetMyPoint(0)
+	ret.SetBestScore(0)
+	ret.SetMyRank(0)
+	ret.SetBossVersion(0)
+	ret.SetBossId(0)
+	ret.SetBossAward1(make([]*protocol.AwardInfo, 0))
+	ret.SetBossAward2(make([]*protocol.AwardInfo, 0))
+	ret.SetBossAward3(make([]*protocol.AwardInfo, 0))
+	ret.SetInfos(make([]*protocol.ArenaRankInfo, 0))
+
+	resp, err := GxService().Redis().Cmd("ZREVRANK", cache_arena_rank_key, parse_id_name_to_sortkey(this.owner.GetUid(), this.owner.GetNickname()))
+	if err != nil {
+		LogError(err)
+		ret.SetRetcode(int32(common.RetCode_Redis_Error))
+		return
+	}
+
+	var my_rank int
+	if resp.IsNil() {
+		my_rank = 0
+		LogDebug("MyRank Is Nil : Uid : ", this.owner.GetUid())
+	} else {
+		my_rank, err = resp.Int()
+		if err != nil {
+			LogError(err)
+			ret.SetRetcode(int32(common.RetCode_Redis_Error))
+			return
+		}
+		my_rank++
+	}
+
+	this.check_reset()
+
+	ret.SetMyPoint(this.GetPoint())
+	ret.SetBestScore(this.GetBestScore())
+	ret.SetMyRank(int32(my_rank))
+	ret.SetBossVersion(this.GetBossVersion())
+	ret.SetBossId(arena_manager.GetBossId())
+	ret.SetBossAward1(this.parseAwardInfo(arena_manager.GetBossAward1()))
+	ret.SetBossAward2(this.parseAwardInfo(arena_manager.GetBossAward2()))
+	ret.SetBossAward3(this.parseAwardInfo(arena_manager.GetBossAward3()))
+
+	if my_rank <= rank_limit {
+		resp, err := GxService().Redis().Cmd("ZREVRANGE", cache_arena_rank_key, 0, rank_limit, "WITHSCORES")
+		if err != nil {
+			LogError(err)
+			ret.SetRetcode(int32(common.RetCode_Redis_Error))
+			return
+		}
+
+		top_rank_str, err := resp.List()
+		if err != nil {
+			LogError(err)
+			ret.SetRetcode(int32(common.RetCode_Redis_Error))
+			return
+		}
+
+		var top_rank []*protocol.ArenaRankInfo
+		var rank int32
+		if top_rank_str != nil && len(top_rank_str) != 0 {
+			top_rank = make([]*protocol.ArenaRankInfo, len(top_rank_str)/2)
+			for i := 0; i < len(top_rank_str); i = i + 2 {
+				rank++
+				uid, name := parse_sortkey_to_id_name(top_rank_str[i])
+				value, _ := strconv.ParseInt(top_rank_str[i+1], 10, 64)
+				score, lv := parse_sortvalue_to_score_lv(value)
+				top_rank[i/2] = &protocol.ArenaRankInfo{
+					Rank:     proto.Int32(rank),
+					RoleUid:  proto.Int64(uid),
+					Nickname: proto.String(name),
+					RoleLv:   proto.Int32(lv),
+					Score:    proto.Int32(score),
+				}
+			}
+		}
+		ret.SetInfos(top_rank)
+	}
+	return
+}
+
+func (this *ArenaSys) ArenaFight(score int32, is_cost_order bool) (ret *protocol.MsgArenaFightRet) {
+	ret = new(protocol.MsgArenaFightRet)
+	ret.SetRetcode(int32(common.RetCode_Success))
+	ret.SetNewRank(0)
+
+	if is_cost_order {
+		if !this.owner.IsEnoughOrder(scheme.Commonmap[define.ArenaCostOrder].Value) {
+			ret.SetRetcode(int32(common.RetCode_RoleNotEnoughOrder))
+			return
+		}
+		this.owner.CostOrder(scheme.Commonmap[define.ArenaCostOrder].Value, true, true)
+	}
+
+	this.check_reset()
+	if score <= this.GetBestScore() {
+		return
+	}
+
+	if this.GetBestScore() < scheme.ArenaBossmap[arena_manager.GetBossId()].Line1 && score > scheme.ArenaBossmap[arena_manager.GetBossId()].Line1 {
+		award.AwardByInfo(this.parseAwardInfo(arena_manager.GetBossAward1()), this.owner, true)
+	}
+
+	if this.GetBestScore() < scheme.ArenaBossmap[arena_manager.GetBossId()].Line2 && score > scheme.ArenaBossmap[arena_manager.GetBossId()].Line2 {
+		award.AwardByInfo(this.parseAwardInfo(arena_manager.GetBossAward2()), this.owner, true)
+	}
+
+	if this.GetBestScore() < scheme.ArenaBossmap[arena_manager.GetBossId()].Line3 && score > scheme.ArenaBossmap[arena_manager.GetBossId()].Line3 {
+		award.AwardByInfo(this.parseAwardInfo(arena_manager.GetBossAward3()), this.owner, true)
+	}
+
+	this.SetBestScore(score)
+
+	this.Save()
+	_, err := GxService().Redis().Cmd("ZADD", cache_arena_rank_key, parse_score_lv_to_sortvalue(score, this.owner.GetLv()), parse_id_name_to_sortkey(this.owner.GetUid(), this.owner.GetNickname()))
+	if err != nil {
+		LogError(err)
+		ret.SetRetcode(int32(common.RetCode_Redis_Error))
+		return
+	}
+
+	resp, err := GxService().Redis().Cmd("ZREVRANK", cache_arena_rank_key, parse_id_name_to_sortkey(this.owner.GetUid(), this.owner.GetNickname()))
+	if err != nil {
+		LogError(err)
+		ret.SetRetcode(int32(common.RetCode_Redis_Error))
+		return
+	}
+
+	my_rank, err := resp.Int()
+	if err != nil {
+		LogError(err)
+		ret.SetRetcode(int32(common.RetCode_Redis_Error))
+		return
+	}
+	my_rank++
+	ret.SetNewRank(int32(my_rank))
+	return
+}
+
+func (this *ArenaSys) ArenaShopQuery() (ret *protocol.MsgArenaShopQueryRet) {
+	ret = new(protocol.MsgArenaShopQueryRet)
+	ret.SetRetcode(int32(common.RetCode_Success))
+	ret.SetTimestamp(0)
+	ret.SetInfo(make([]*protocol.AwardInfo, 0))
+	ret.SetShopRecord(make([]int32, 0))
+
+	this.check_reset()
+
+	ret.SetTimestamp(this.GetShopVersion())
+	ret.SetPanel(arena_manager.GetShopPanel())
+	ret.SetInfo(this.parseAwardInfo(arena_manager.GetShopAward()))
+	shop_record := make([]int32, len(arena_manager.GetShopAward()))
+	for i := 0; i < len(shop_record); i++ {
+		if v, has := this.ArenaCache.ShopRecords[int32(i)]; has {
+			shop_record[i] = v
+		} else {
+			shop_record[i] = 0
+		}
+	}
+	ret.SetShopRecord(shop_record)
+	return
+}
+
+func (this *ArenaSys) ArenaShopBuy(pos int32) (ret *protocol.MsgArenaShopBuyRet) {
+	ret = new(protocol.MsgArenaShopBuyRet)
+	ret.SetRetcode(int32(common.RetCode_Success))
+	ret.SetPos(pos)
+	ret.SetCount(0)
+	ret.SetRestPoint(this.GetPoint())
+
+	_, shop_change := this.check_reset()
+	if shop_change {
+		ret.SetRetcode(int32(common.RetCode_ArenaShopNeedFresh))
+		return
+	}
+
+	shop_schemes := scheme.ArenaShopGet(arena_manager.GetShopPanel())
+	LogDebug(shop_schemes)
+	if pos < 0 || pos > int32(len(shop_schemes)-1) {
+		ret.SetRetcode(int32(common.RetCode_ArenaShopPosError))
+		return
+	}
+
+	shop_scheme := shop_schemes[pos]
+	LogDebug(shop_scheme)
+	if !this.IsEnoughArenaPoint(shop_scheme.CostPoint) {
+		ret.SetRetcode(int32(common.RetCode_RoleNotEnoughArenaPoint))
+		return
+	}
+
+	if shop_scheme.ExchangeTimes > 0 {
+		shop_record, has := this.ArenaCache.GetShopRecords()[pos]
+		if has {
+			if shop_record >= shop_scheme.ExchangeTimes {
+				ret.SetRetcode(int32(common.RetCode_ArenaShopNoCount))
+				return
+			} else {
+				this.ArenaCache.ShopRecords[pos]++
+				ret.SetCount(this.ArenaCache.ShopRecords[pos])
+				LogDebug("ShopRecord Add Pos : ", pos, " Count : ", this.ArenaCache.ShopRecords[pos])
+			}
+		} else {
+			this.ArenaCache.ShopRecords[pos] = 1
+			ret.SetCount(this.ArenaCache.ShopRecords[pos])
+			LogDebug("ShopRecord New Pos : ", pos, " Count : ", this.ArenaCache.ShopRecords[pos])
+		}
+	}
+	this.CostArenaPoint(shop_scheme.CostPoint, true, true)
+	award.AwardByInfo(this.parseAwardInfo(arena_manager.GetShopAward()), this.owner, true)
+	this.Save()
+
+	ret.SetRestPoint(this.GetPoint())
+	return
+}

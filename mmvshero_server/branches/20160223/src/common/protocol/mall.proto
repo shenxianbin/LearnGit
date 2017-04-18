@@ -1,0 +1,30 @@
+syntax="proto2";
+
+package protocol;
+
+message MallInfo
+{
+	required int32 mall_id = 1;
+	required int64 args = 2;
+}
+
+message MsgMallInitReq
+{
+	
+}
+
+message MsgMallInitRet
+{
+	repeated MallInfo infos = 1;
+}
+
+message MsgMallBuyReq
+{
+	required int32 mall_id = 1;
+}
+
+message MsgMallBuyRet
+{
+	required int32 retcode = 1;
+	required MallInfo info = 2;
+}

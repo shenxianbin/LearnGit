@@ -1,0 +1,470 @@
+package friend
+
+import (
+	. "Gameserver/logic"
+	. "common/cache"
+	"common/protocol"
+	"fmt"
+	"galaxy"
+
+	"github.com/golang/protobuf/proto"
+)
+
+func (this *Friend) toCache() *FriendCache {
+	c := &FriendCache{}
+	c.Id = proto.Int64(this.id)
+	c.SelfId = proto.Int64(this.selfId)
+	c.WinTimes = proto.Int32(this.winTimes)
+	c.LoseTimes = proto.Int32(this.loseTimes)
+	c.SendExcitationTime = proto.Int64(this.sendExcitationTime)
+	c.ReceiveExcitationTime = proto.Int64(this.receiveExcitationTime)
+	c.UseExcitationTime = proto.Int64(this.useExcitationTime)
+	c.FriendInfo = this.friendInfo.toCache()
+	return c
+}
+
+func (this *Friend) readCache(friendCache *FriendCache) {
+	c := this
+	c.id = friendCache.GetId()
+	c.selfId = friendCache.GetSelfId()
+	c.winTimes = friendCache.GetWinTimes()
+	c.loseTimes = friendCache.GetLoseTimes()
+	c.sendExcitationTime = friendCache.GetSendExcitationTime()
+	c.receiveExcitationTime = friendCache.GetReceiveExcitationTime()
+	c.useExcitationTime = friendCache.GetUseExcitationTime()
+	c.friendInfo = &FriendInfo{}
+	c.friendInfo.readCache(friendCache.FriendInfo)
+}
+
+func (this *Friend) toProtocol() *protocol.Friend {
+	m := new(protocol.Friend)
+	m.Id = proto.Int64(this.id)
+	m.SelfId = proto.Int64(this.selfId)
+	m.WinTimes = proto.Int32(this.winTimes)
+	m.LoseTimes = proto.Int32(this.loseTimes)
+	m.SendExcitationTime = proto.Int64(this.sendExcitationTime)
+	m.ReceiveExcitationTime = proto.Int64(this.receiveExcitationTime)
+	m.UseExcitationTime = proto.Int64(this.useExcitationTime)
+
+	f := new(protocol.FriendInfo)
+	f.Id = proto.Int64(this.friendInfo.id)
+	f.LeagueLevel = proto.Int32(this.friendInfo.leagueLevel)
+	f.Level = proto.Int32(this.friendInfo.level)
+	f.LoginTime = proto.Int64(this.friendInfo.loginTime)
+	f.Timestamp = proto.Int64(this.friendInfo.timestamp)
+	f.Trophy = proto.Int32(this.friendInfo.trophy)
+	f.Nickname = proto.String(this.friendInfo.nickname)
+
+	m.SetFriendInfo(f)
+	return m
+}
+
+func (this *FriendInfo) toCache() *FriendInfoCache {
+	c := &FriendInfoCache{}
+	c.Id = proto.Int64(this.id)
+	c.LoginTime = proto.Int64(this.loginTime)
+	c.Level = proto.Int32(this.level)
+	c.LeagueLevel = proto.Int32(this.leagueLevel)
+	c.Trophy = proto.Int32(this.trophy)
+	c.Timestamp = proto.Int64(this.timestamp)
+	c.Nickname = proto.String(this.nickname)
+	return c
+}
+
+func (this *FriendInfo) readCache(friendInfoCache *FriendInfoCache) {
+	c := this
+	c.id = friendInfoCache.GetId()
+	c.loginTime = friendInfoCache.GetLoginTime()
+	c.level = friendInfoCache.GetLevel()
+	c.leagueLevel = friendInfoCache.GetLeagueLevel()
+	c.trophy = friendInfoCache.GetTrophy()
+	c.timestamp = friendInfoCache.GetTimestamp()
+	c.nickname = friendInfoCache.GetNickname()
+}
+
+func (this *FriendInfo) reload(role IRole) {
+	if this.timestamp+30*60 > Time() {
+		return
+	}
+
+	// galaxy.LogDebug("this.id:", this.id)
+
+	user := role.OfflineRoleBase(this.id)
+
+	// galaxy.LogDebug("user:", user)
+
+	this.loginTime = user.GetLoginTime()
+	this.level = user.GetLv()
+	//	this.leagueLevel = user.GetLeagueLv()
+	//	this.trophy = user.GetTrophy()
+	this.timestamp = Time()
+	this.nickname = user.GetNickname()
+}
+
+func (this *Request) toCache() *RequestCache {
+	c := &RequestCache{}
+	c.Id = proto.Int64(this.id)
+	c.SelfId = proto.Int64(this.selfId)
+	c.Timestamp = proto.Int64(this.timestamp)
+	c.FriendInfo = &FriendInfoCache{}
+	c.FriendInfo = this.friendInfo.toCache()
+	return c
+}
+
+func (this *Request) readCache(request *RequestCache) {
+	c := this
+	c.id = request.GetId()
+	c.selfId = request.GetSelfId()
+	c.timestamp = request.GetTimestamp()
+	c.friendInfo = &FriendInfo{}
+	c.friendInfo.readCache(request.FriendInfo)
+}
+
+func (this *Request) toProtocol() *protocol.FriendRequest {
+	m := new(protocol.FriendRequest)
+	m.Id = proto.Int64(this.id)
+	m.SelfId = proto.Int64(this.selfId)
+	m.Timestamp = proto.Int64(this.timestamp)
+
+	f := new(protocol.FriendInfo)
+	f.Id = proto.Int64(this.friendInfo.id)
+	f.LeagueLevel = proto.Int32(this.friendInfo.leagueLevel)
+	f.Level = proto.Int32(this.friendInfo.level)
+	f.LoginTime = proto.Int64(this.friendInfo.loginTime)
+	f.Timestamp = proto.Int64(this.friendInfo.timestamp)
+	f.Trophy = proto.Int32(this.friendInfo.trophy)
+	f.Nickname = proto.String(this.friendInfo.nickname)
+
+	m.SetFriendInfo(f)
+	return m
+}
+
+func (this *Invitee) toCache() *InviteeCache {
+	c := &InviteeCache{}
+	c.Id = proto.Int64(this.id)
+	c.SelfId = proto.Int64(this.selfId)
+	c.Level = proto.Int32(this.level)
+	return c
+}
+
+func (this *Invitee) readCache(invitee *InviteeCache) {
+	c := this
+	c.id = invitee.GetId()
+	c.selfId = invitee.GetSelfId()
+	c.level = invitee.GetLevel()
+}
+
+func (this *Request) save() bool {
+	buff, err := proto.Marshal(this.toCache())
+	if err != nil {
+		galaxy.LogError(err)
+		return false
+	}
+
+	temp := fmt.Sprintf(requestkey, this.selfId, this.id)
+	if _, err = RedisCmd("SET", temp, buff); err != nil {
+		galaxy.LogError(err)
+		return false
+	}
+
+	if _, err := RedisCmd("SADD", fmt.Sprintf(requestskey, this.selfId), temp); err != nil {
+		galaxy.LogError(err)
+		return false
+	}
+
+	return true
+}
+
+func (this *Request) delete() bool {
+	temp := fmt.Sprintf(requestkey, this.selfId, this.id)
+	if _, err := RedisCmd("DEL", temp); err != nil {
+		galaxy.LogError(err)
+		return false
+	}
+
+	if _, err := RedisCmd("SREM", fmt.Sprintf(requestskey, this.selfId), temp); err != nil {
+		galaxy.LogError(err)
+		return false
+	}
+	return true
+}
+
+func (this *Invitee) save() bool {
+	buff, err := proto.Marshal(this.toCache())
+	if err != nil {
+		galaxy.LogError(err)
+		return false
+	}
+
+	temp := fmt.Sprintf(inviteeKey, this.selfId, this.id)
+	if _, err = RedisCmd("SET", temp, buff); err != nil {
+		galaxy.LogError(err)
+		return false
+	}
+
+	if _, err := RedisCmd("SADD", fmt.Sprintf(inviteesKey, this.selfId), temp); err != nil {
+		galaxy.LogError(err)
+		return false
+	}
+
+	return true
+}
+
+func (this *Invitee) delete() bool {
+	temp := fmt.Sprintf(inviteeKey, this.selfId, this.id)
+	if _, err := RedisCmd("DEL", temp); err != nil {
+		galaxy.LogError(err)
+		return false
+	}
+
+	if _, err := RedisCmd("SREM", fmt.Sprintf(inviteesKey, this.selfId), temp); err != nil {
+		galaxy.LogError(err)
+		return false
+	}
+	return true
+}
+
+func (this *Friend) save() bool {
+	buff, err := proto.Marshal(this.toCache())
+	if err != nil {
+		galaxy.LogError(err)
+		return false
+	}
+
+	temp := fmt.Sprintf(friendkey, this.selfId, this.id)
+	// galaxy.LogDebug("save,", temp)
+	if _, err = RedisCmd("SET", temp, buff); err != nil {
+		galaxy.LogError(err)
+		return false
+	}
+
+	// galaxy.LogDebug("sadd,", fmt.Sprintf(friendskey, this.selfId))
+
+	if _, err := RedisCmd("SADD", fmt.Sprintf(friendskey, this.selfId), temp); err != nil {
+		galaxy.LogError(err)
+		return false
+	}
+
+	return true
+}
+
+func (this *Friend) delete() bool {
+	temp := fmt.Sprintf(friendkey, this.selfId, this.id)
+	if _, err := RedisCmd("DEL", temp); err != nil {
+		galaxy.LogError(err)
+		return false
+	}
+
+	if _, err := RedisCmd("SREM", fmt.Sprintf(friendskey, this.selfId), temp); err != nil {
+		galaxy.LogError(err)
+		return false
+	}
+	return true
+}
+
+func (this *UserFriends) delete(deleteList []string) bool {
+	if _, err := RedisCmd("DEL", deleteList); err != nil {
+		galaxy.LogError(err)
+		return false
+	}
+
+	if _, err := RedisCmd("SREM", fmt.Sprintf(friendskey, this.user.GetUid()), deleteList); err != nil {
+		galaxy.LogError(err)
+		return false
+	}
+	return true
+}
+
+func (this *Friend) read() error {
+	if this.id == 0 {
+		return fmt.Errorf("not found")
+	}
+
+	resp, err := RedisCmd("GET", fmt.Sprintf(friendkey, this.selfId, this.id))
+	if err != nil {
+		galaxy.LogError(err)
+		return err //没有
+	}
+
+	if buff, _ := resp.Bytes(); buff != nil {
+		cache := &FriendCache{}
+		err := proto.Unmarshal(buff, cache)
+		if err != nil {
+			galaxy.LogError(err)
+			return err
+		}
+
+		this.readCache(cache)
+	} else {
+		galaxy.LogError("not found this friend :", this.id)
+		return fmt.Errorf("not found this friend : %v", this.id)
+	}
+
+	return nil
+}
+
+func (this *UserFriends) newFriendInfo(user IRoleBase) *FriendInfo {
+	info := &FriendInfo{}
+	info.id = user.GetUid()
+	info.level = user.GetLv()
+	//	info.leagueLevel = user.GetLeagueLv()
+
+	info.loginTime = this.user.GetLoginTime()
+	//	info.trophy = user.GetTrophy()
+	info.timestamp = Time()
+	info.nickname = user.GetNickname()
+	return info
+}
+
+func (this *FriendInfo) copy() *FriendInfo {
+	info := &FriendInfo{}
+	info.id = this.id
+	info.level = this.level
+	info.leagueLevel = this.leagueLevel
+	info.loginTime = this.loginTime
+	info.trophy = this.trophy
+	info.timestamp = this.timestamp
+	info.nickname = this.nickname
+	return info
+}
+
+func (this *UserFriends) reloadFriends() error {
+	this.Friends = make(map[int64]*Friend)
+
+	resp, err := RedisCmd("SMEMBERS", fmt.Sprintf(friendskey, this.user.GetUid()))
+	if err != nil {
+		galaxy.LogError(err)
+		return err //没有
+	}
+
+	keys, _ := resp.List()
+	// galaxy.LogDebug("friends keys:", keys)
+	for _, key := range keys {
+		resp, err := RedisCmd("GET", key)
+		if err != nil {
+			galaxy.LogError(err)
+			return err //没有
+		}
+		if buff, _ := resp.Bytes(); buff != nil {
+			cache := &FriendCache{}
+			err = proto.Unmarshal(buff, cache)
+			friend := &Friend{}
+			friend.readCache(cache)
+			this.Friends[cache.GetId()] = friend
+		} else {
+			galaxy.LogError("SREM: ", fmt.Sprintf(friendskey, this.user.GetUid()), key)
+			RedisCmd("SREM", fmt.Sprintf(friendskey, this.user.GetUid()), key)
+		}
+	}
+
+	if err != nil {
+		galaxy.LogError(err)
+	}
+	return err
+}
+
+func (this *UserFriends) reloadRequests() error {
+	this.Requests = make(map[int64]*Request)
+
+	resp, err := RedisCmd("SMEMBERS", fmt.Sprintf(requestskey, this.user.GetUid()))
+	if err != nil {
+		galaxy.LogError(err)
+		return err //没有
+	}
+
+	keys, _ := resp.List()
+	for _, key := range keys {
+		resp, err := RedisCmd("GET", key)
+		if err != nil {
+			galaxy.LogError(err)
+			return err //没有
+		}
+		if buff, _ := resp.Bytes(); buff != nil {
+			cache := &RequestCache{}
+			err = proto.Unmarshal(buff, cache)
+			request := &Request{}
+			request.readCache(cache)
+			this.Requests[cache.GetId()] = request
+		} else {
+			galaxy.LogError("SREM: ", fmt.Sprintf(requestskey, this.user.GetUid()), key)
+			RedisCmd("SREM", fmt.Sprintf(requestskey, this.user.GetUid()), key)
+		}
+	}
+
+	if err != nil {
+		galaxy.LogError(err)
+	}
+	return err
+}
+
+func (this *UserFriends) reloadInvitees() error {
+	this.Invitees = make(map[int64]*Invitee)
+
+	resp, err := RedisCmd("SMEMBERS", fmt.Sprintf(requestskey, this.user.GetUid()))
+	if err != nil {
+		galaxy.LogError(err)
+		return err //没有
+	}
+
+	keys, _ := resp.List()
+	for _, key := range keys {
+		resp, err := RedisCmd("GET", key)
+		if err != nil {
+			galaxy.LogError(err)
+			return err //没有
+		}
+		if buff, _ := resp.Bytes(); buff != nil {
+			cache := &InviteeCache{}
+			err = proto.Unmarshal(buff, cache)
+			invitee := &Invitee{}
+			invitee.readCache(cache)
+			this.Invitees[cache.GetId()] = invitee
+		} else {
+			galaxy.LogError("SREM: ", fmt.Sprintf(requestskey, this.user.GetUid()), key)
+			RedisCmd("SREM", fmt.Sprintf(requestskey, this.user.GetUid()), key)
+		}
+	}
+
+	if err != nil {
+		galaxy.LogError(err)
+	}
+	return err
+}
+
+func (this *UserFriends) loadInviteId() error {
+	if this.InviteId != 0 {
+		return nil
+	}
+
+	resp, _ := RedisCmd("GET", fmt.Sprintf(inviteIdKey, this.user.GetUid()))
+	this.InviteId, _ = resp.Int64()
+	return nil
+}
+
+func (this *UserFriends) saveInviteId() {
+	if this.InviteId == 0 {
+		return
+	}
+
+	if _, err := RedisCmd("SET", fmt.Sprintf(inviteIdKey, this.user.GetUid()), this.InviteId); err != nil {
+		galaxy.LogError(err)
+	}
+}
+
+func (this *UserFriends) updateInviteesLv() error {
+	for friendId, invitee := range this.Invitees {
+		user := this.user.OfflineRoleBase(friendId)
+		invitee.level = user.GetLv()
+		invitee.save()
+	}
+
+	//检查邀请任务完成进度
+	for _, invitee := range this.Invitees {
+		//21-30 mission id
+		for i := 21; i <= 30; i++ {
+			this.user.MissionAddNum(int32(i), 1, invitee.level)
+		}
+	}
+
+	return nil
+}

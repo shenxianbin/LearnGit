@@ -1,0 +1,67 @@
+syntax="proto2";
+
+package protocol;
+
+message BuildingInfo
+{
+	required int64 uid = 1;
+	required int32 scheme_id = 2;
+	required int32 lv = 3;
+	required int64 collect_timestamp = 4;
+	required int64 build_timestamp = 5;
+}
+
+message BuildingListInfo
+{
+	repeated BuildingInfo build_list = 1;
+}
+
+//建筑變動通知
+message MsgBuildingInfoNotify
+{
+	required BuildingInfo building = 1;
+}
+
+//建筑开始升级
+message MsgBuildingStartLvUpReq {
+	required int64 building_uid = 1;
+	required bool used_coin = 2;//是否使用货币立即升级
+}
+
+message MsgBuildingStartLvUpRet {
+	required int32 retcode = 1;
+}
+//建筑升级取消
+message MsgBuildingCancelLvUpReq {
+	required int64 building_uid = 1;
+}
+
+message MsgBuildingCancelLvUpRet {
+	required int32 retcode = 1;
+}
+//检查建筑升级是否完成
+message MsgBuildingFinishLvUpReq {
+	required int64 building_uid = 1;
+}
+
+message MsgBuildingFinishLvUpRet {
+	required int32 retcode = 1;
+}
+//使用货币减少升级时间
+message MsgBuildingLvUpRemoveTimeReq{
+	required int64 building_uid = 1;
+}
+
+message MsgBuildingLvUpRemoveTimeRet{
+	required int32 retcode = 1;
+}
+
+message MsgBuildingCollectReq
+{
+	required int64 uid = 1;
+}
+
+message MsgBuildingCollectRet
+{
+	required int32 retcode = 1;
+}

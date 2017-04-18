@@ -1,0 +1,96 @@
+package drop
+
+import (
+	"Gameserver/global"
+	"Gameserver/logic"
+	"Gameserver/logic/award"
+	"common"
+	"common/protocol"
+	"common/scheme"
+	"galaxy"
+	. "galaxy"
+	"strconv"
+	"strings"
+
+	"github.com/golang/protobuf/proto"
+)
+
+func InitDropModule() {
+	init_protocol()
+}
+
+func init_protocol() {
+	global.RegisterMsg(int32(protocol.MsgCode_DropReq), func(sid int64, msg []byte) {
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		req_msg := &protocol.MsgDropReq{}
+		err := proto.Unmarshal(msg, req_msg)
+		if err != nil {
+			LogError(err)
+			return
+		}
+
+		var ret common.RetCode
+		var can bool
+		awardinfo := make([]*protocol.AwardInfo, 0)
+		drop := scheme.DropGet(req_msg.GetType())
+		if drop == nil {
+			ret = common.RetCode_SchemeData_Error
+		} else {
+			if role.ItemIsEnough(drop.NeedItem, drop.NeedItemNum) {
+				role.ItemCost(drop.NeedItem, drop.NeedItemNum, true)
+				can = true
+			} else {
+				if role.IsEnoughGold(drop.NeedGold) {
+					role.CostGold(drop.NeedGold, true, true)
+					can = true
+				}
+			}
+
+			if can {
+				award_list := strings.Split(drop.RandomAwardId, ";")
+				LogDebug(award_list)
+				for _, award_str := range award_list {
+					if award_str == "" {
+						continue
+					}
+
+					award_id, err := strconv.Atoi(award_str)
+					if err != nil {
+						galaxy.LogError(err)
+						continue
+					}
+
+					var temp []*protocol.AwardInfo
+					temp, ret = award.Award(int32(award_id), role, true)
+					awardinfo = append(awardinfo, temp...)
+					LogDebug(awardinfo)
+				}
+			} else {
+				ret = common.RetCode_Unable
+			}
+		}
+
+		var ret_msg *protocol.MsgDropRet
+		if len(awardinfo) == 0 {
+			ret_msg = &protocol.MsgDropRet{
+				Retcode: proto.Int32(int32(ret)),
+			}
+		} else {
+			ret_msg = &protocol.MsgDropRet{
+				Retcode: proto.Int32(int32(ret)),
+				Infos:   awardinfo,
+			}
+		}
+
+		buf, err := proto.Marshal(ret_msg)
+		if err != nil {
+			LogError(err)
+			return
+		}
+		global.SendMsg(int32(protocol.MsgCode_DropRet), sid, buf)
+	})
+}

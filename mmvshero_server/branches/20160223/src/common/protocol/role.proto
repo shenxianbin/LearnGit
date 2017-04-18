@@ -1,0 +1,76 @@
+syntax="proto2";
+
+package protocol;
+
+message RoleBaseInfo
+{
+	required int64 uid = 1;
+	required string nickname = 2;
+	required int32 lv = 3;
+	required int32 exp = 4;
+	required int32 order = 5;
+	required int32 order_buynum = 6;
+	required int64 order_timestamp = 7;
+	required int32 spirit = 8;
+	required int32 spirit_buynum = 9;
+	required int64 spirit_timestamp = 10;
+	required int64 soul = 11;
+	required int64 blood = 12;
+	required int32 stone = 13;
+	required int32 gold = 14;
+	required int32 trophy = 15;
+	required int32 leagueLv = 16;
+	required int64 shield = 17;
+	required int64 vip = 18;
+	required int32 chat_free_time = 19;
+	required int32 magic_queue_type = 20;
+	required int64 magic_queue_id = 21;
+	required int32 new_player_guide_step = 22;
+	required string alias = 23;
+}
+
+//属性变更通知
+enum RoleAttrType
+{
+	Lv = 1;
+	Exp = 2;
+	Order = 3;
+	Order_Buynum = 4;
+	Order_Timestamp = 5;
+	Spirit = 6;
+	Spirit_Buynum = 7;
+	Spirit_Timestamp = 8;
+	Soul = 9;
+	Blood = 10;
+	Stone = 11;
+	Gold = 12;
+	Trophy = 13;
+	LeagueLv = 14;
+	Shield = 15;
+	Vip = 16;
+	Chat_FreeTime = 17;
+}
+
+message MsgRoleInfoUpdateNotify
+{
+	required RoleAttrType attr_type = 1;
+	required int64 attr_value = 2;
+}
+
+//设置昵称
+message MsgRoleSetNicknameReq
+{
+	required string nickname = 1;
+}
+
+message MsgRoleSetNicknameRet
+{
+	required int32 retcode = 1;
+}
+
+//新手引导
+message MsgRoleNewGuideUpdate
+{
+	required int32 new_player_guide_step = 1;
+}
+

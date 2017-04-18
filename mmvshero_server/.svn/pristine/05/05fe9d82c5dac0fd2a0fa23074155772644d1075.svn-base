@@ -1,0 +1,461 @@
+package stage
+
+import (
+	. "Gameserver/cache"
+	"Gameserver/global"
+	. "Gameserver/logic"
+	. "Gameserver/logic/award"
+	"common/protocol"
+	"common/scheme"
+	"common/static"
+	"fmt"
+	"galaxy"
+	"time"
+
+	"github.com/golang/protobuf/proto"
+)
+
+type Stage struct {
+	schemeId          int32
+	isBeginning       bool //是否开始
+	isPassed          bool //是否通关
+	isPlayedAnimation bool
+	stars             map[int32]int32 //任务星级
+}
+
+type UserStages struct {
+	user            IRole
+	Stages          map[int32]*Stage //key stage schemeId
+	currentStageIds map[int32]int32  //当前进度
+}
+
+const (
+	stageKey  = "Role:%v:Stage:%v"
+	stageKeys = "Role:%v:Stages"
+)
+
+func (this *UserStages) key(roleId int64, schemeId int32) string {
+	return fmt.Sprintf(stageKey, roleId, schemeId)
+}
+
+//获取一个用户的所有魔物key
+func (this *UserStages) keys(roleId int64) string {
+	return fmt.Sprintf(stageKeys, roleId)
+}
+
+func (this *UserStages) Init(user IRole) {
+	this.user = user
+	this.Stages = make(map[int32]*Stage)
+	this.currentStageIds = make(map[int32]int32)
+}
+
+func (this *UserStages) Load() error {
+	roleId := this.user.GetUid()
+	if this.Stages == nil {
+		this.Stages = make(map[int32]*Stage)
+	}
+	//获取所有keys
+	resp, err := RedisCmd("SMEMBERS", this.keys(roleId))
+	if err != nil {
+		galaxy.LogError(err)
+		return err //没有
+	}
+
+	keys, _ := resp.List()
+	for _, key := range keys {
+		//获取数据
+		resp, err := RedisCmd("GET", key)
+		if err != nil {
+			galaxy.LogError(err)
+			return err //没有
+		}
+		if buff, _ := resp.Bytes(); buff != nil {
+			stageCache := &StageCache{}
+			err = proto.Unmarshal(buff, stageCache)
+			stage := this.newStage(stageCache)
+			this.Stages[stage.schemeId] = stage
+			if stage.isPassed == false {
+				StageType := scheme.Stagemap[stage.schemeId].StageType
+				this.currentStageIds[StageType] = stage.schemeId
+			}
+
+		} else {
+			RedisCmd("SREM", this.keys(roleId), key)
+		}
+	}
+
+	if err != nil {
+		galaxy.LogError(err)
+	}
+
+	return nil
+}
+
+func (this *UserStages) StageAll() *protocol.MsgStageAllRet {
+	//载入第一个关
+	if len(this.Stages) == 0 {
+		this.Stages[1] = &Stage{schemeId: 1}
+		this.currentStageIds[0] = 1
+		this.saveStageToDb(1)
+	}
+
+	list1 := make([]*protocol.Stage, len(this.Stages))
+
+	var i int32 = 0
+	for _, v := range this.Stages {
+		list1[i] = v.FillInfo()
+		i++
+	}
+
+	m := new(protocol.MsgStageAllRet)
+	m.SetStages(list1)
+
+	return m
+}
+
+func (this *Stage) FillInfo() *protocol.Stage {
+	s := make([]*protocol.Stars, len(this.stars))
+
+	m := new(protocol.Stage)
+	m.SetSchemeId(this.schemeId)
+	m.IsBeginning = proto.Bool(this.isBeginning)
+	m.IsPassed = proto.Bool(this.isPassed)
+	m.IsPlayedAnimation = proto.Bool(this.isPlayedAnimation)
+
+	var i int32 = 0
+	for k, v := range this.stars {
+		s[i] = &protocol.Stars{}
+		s[i].SetMissionId(k)
+		s[i].SetIsFinish(v)
+		i++
+	}
+
+	if s != nil {
+		m.SetStars(s)
+	}
+
+	return m
+}
+
+func (this *UserStages) StagePlayAnimation(schemeId int32) bool {
+	if stage, ok := this.Stages[schemeId]; ok {
+		if stage.isPlayedAnimation {
+			return false
+		}
+		stage.isPlayedAnimation = true
+		this.saveStageToDb(schemeId)
+		return true
+	}
+	return false
+}
+
+func (this *UserStages) StageBegin(schemeId int32) bool {
+	if stage, ok := this.Stages[schemeId]; ok {
+
+		order := scheme.Stagemap[schemeId].LeastCostOrder
+		winOrder := scheme.Stagemap[schemeId].VictoryCostOrder
+		if !this.user.IsEnoughOrder(winOrder) {
+			return false
+		}
+
+		this.user.CostOrder(order, true, true)
+		this.user.AddExp(scheme.Stagemap[schemeId].LeastRoleExp, true, true)
+		stage.isBeginning = true
+		this.saveStageToDb(schemeId)
+		this.static_stage_log(stage, int32(static.StageStatus_begin))
+		return true
+	}
+	galaxy.LogError("not found:", schemeId, this.Stages)
+	return false
+}
+
+func (this *UserStages) StageFinish(schemeId int32, isPassed bool, stars map[int32]int32, isSweep bool, sweepTimes int32) *protocol.MsgStageFinishRet {
+	ret := &protocol.MsgStageFinishRet{}
+	ret.SetRetCode(1)
+	ret.CurrentStageId1 = proto.Int32(this.currentStageIds[0])
+	ret.CurrentStageId2 = proto.Int32(this.currentStageIds[1])
+	if stage, ok := this.Stages[schemeId]; ok {
+		//奖励次数
+		rewardTimes := 1
+		if isSweep == true {
+			rewardTimes = int(sweepTimes)
+		} else {
+			if stage.isBeginning == false {
+				return ret
+			}
+		}
+
+		//添加完成任务
+		//普通
+		if scheme.Stagemap[schemeId].StageType == 0 {
+			this.user.MissionAddNum(6, int32(rewardTimes), 0)
+		} else {
+			this.user.MissionAddNum(7, int32(rewardTimes), 0)
+		}
+
+		stage.isBeginning = false
+		if isPassed == false {
+			ret.SetRetCode(0)
+			this.saveStageToDb(schemeId)
+			return ret
+		}
+
+		stage.isPassed = true
+
+		RetExtraAwards := make([]*protocol.AwardInfo, 0)
+
+		if isSweep == false {
+			//合并星级
+			if stage.stars == nil {
+				stage.stars = make(map[int32]int32)
+			}
+
+			galaxy.LogDebug("stars:", stars)
+			for k, v := range stars {
+				if v == 1 || stage.stars[k] == 1 {
+					stage.stars[k] = 1
+				}
+			}
+
+			galaxy.LogDebug("stage.stars", stage.stars)
+
+			//完成星级成就
+			this.user.AchievementAddNum(2, this.calcAllStars(), true)
+		} else {
+			for _, v := range stage.stars {
+				if v == 0 {
+					return ret
+				}
+			}
+
+			if len(stage.stars) < 3 {
+				return ret
+			}
+
+			//检查道具是否足够
+			SweepNeedItemID := scheme.Stagemap[schemeId].SweepNeedItemID
+			SweepNeedItemNum := scheme.Stagemap[schemeId].SweepNeedItemNum
+			if SweepNeedItemID > 0 {
+				if false == this.user.ItemIsEnough(SweepNeedItemID, SweepNeedItemNum*sweepTimes) {
+					return ret
+				}
+				this.user.ItemCost(SweepNeedItemID, SweepNeedItemNum*sweepTimes, true)
+			}
+
+			// ExtraBonus := 0
+			for i := 0; i < int(sweepTimes); i++ {
+				temp, _ := Award(int32(scheme.Stagemap[schemeId].SweepExtraBonus), this.user, true)
+				for _, awardInfo := range temp {
+					RetExtraAwards = append(RetExtraAwards, awardInfo)
+				}
+			}
+		}
+
+		for i := 0; i < rewardTimes; i++ {
+			//固定奖励
+			RetFixedAwards, _ := Award(int32(scheme.Stagemap[schemeId].FixedAwardId), this.user, true)
+			RetItemAwards, _ := Award(int32(scheme.Stagemap[schemeId].ItemAwardId), this.user, true)
+			RetHeroAwards, _ := Award(int32(scheme.Stagemap[schemeId].HeroAwardId), this.user, true)
+			RetSoldierAwards, _ := Award(int32(scheme.Stagemap[schemeId].SoldierAwardId), this.user, true)
+
+			var countHeros int32
+			for _, awardInfo := range RetHeroAwards {
+				countHeros += awardInfo.GetAmount()
+			}
+
+			//完成任务
+			this.user.MissionAddNum(5, countHeros, 0)
+			//完成成就
+			this.user.AchievementAddNum(1, countHeros, false)
+
+			//扣除体力
+			order := scheme.Stagemap[schemeId].VictoryCostOrder - scheme.Stagemap[schemeId].LeastCostOrder
+			this.user.CostOrder(order, true, true)
+
+			//增加经验
+			exp := scheme.Stagemap[schemeId].VictoryRoleExp - scheme.Stagemap[schemeId].LeastRoleExp
+			this.user.AddExp(exp, true, true)
+			stageAward := &protocol.StageAward{}
+			stageAward.SetExtraBonus(RetExtraAwards)
+			stageAward.SetFixedAwards(RetFixedAwards)
+			stageAward.SetHeroAwards(RetHeroAwards)
+			stageAward.SetItemAwards(RetItemAwards)
+			stageAward.SetSoldierAwards(RetSoldierAwards)
+			if ret.Awards == nil {
+				ret.Awards = make([]*protocol.StageAward, 0)
+			}
+			ret.Awards = append(ret.Awards, stageAward)
+
+			RetExtraAwards = make([]*protocol.AwardInfo, 0)
+		}
+
+		this.saveStageToDb(schemeId)
+		this.checkNextStage(schemeId)
+
+		ret.CurrentStageId1 = proto.Int32(this.currentStageIds[0])
+		ret.CurrentStageId2 = proto.Int32(this.currentStageIds[1])
+		ret.SetRetCode(0)
+
+		this.static_stage_log(stage, int32(static.StageStatus_end))
+
+		return ret
+	}
+
+	return ret
+}
+
+//检查下一个是否开启
+func (this *UserStages) checkNextStage(schemeId int32) {
+	nextStageId := scheme.Stagemap[schemeId].NextStageId
+
+	if nextStageId == -1 {
+		return
+	}
+
+	//已经开启
+	if _, ok := this.Stages[nextStageId]; ok {
+		galaxy.LogDebug("下一关已经开启", nextStageId)
+		return
+	}
+
+	if stage, ok := this.Stages[schemeId]; ok {
+		if stage.isPassed == false {
+			return
+		}
+
+		//普通关卡 直接开放
+		if scheme.Stagemap[schemeId].StageType == 0 {
+			this.Stages[nextStageId] = &Stage{schemeId: nextStageId}
+			this.currentStageIds[0] = nextStageId
+			this.saveStageToDb(nextStageId)
+			if scheme.Stagemap[nextStageId].Chapter == scheme.Stagemap[schemeId].Chapter {
+				return
+			}
+
+			//开启精英关1
+			if this.currentStageIds[1] == 0 {
+				this.Stages[7] = &Stage{schemeId: 7}
+				this.currentStageIds[1] = 7
+				this.saveStageToDb(7)
+				return
+			}
+		}
+
+		//已通当前普通章节
+		//判断是否开启精英关
+
+		if _, ok := this.Stages[this.currentStageIds[1]]; !ok {
+			galaxy.LogError("not found stages:", this.currentStageIds[1])
+			return
+		}
+		if this.Stages[this.currentStageIds[1]].isPassed == false {
+			return
+		}
+
+		nextId := scheme.Stagemap[this.currentStageIds[1]].NextStageId
+		if nextId == -1 {
+			return
+		}
+		if scheme.Stagemap[nextId].Chapter == scheme.Stagemap[this.currentStageIds[1]].Chapter || scheme.Stagemap[nextId].Chapter < scheme.Stagemap[this.currentStageIds[0]].Chapter {
+			//开放
+			this.Stages[nextId] = &Stage{schemeId: nextId}
+			this.currentStageIds[1] = nextId
+			this.saveStageToDb(nextId)
+		}
+	}
+}
+
+func (this *UserStages) newStageCache(stage *Stage) *StageCache {
+	stars := make(map[int32]int32)
+	for k, v := range stage.stars {
+		stars[k] = v
+	}
+	m := &StageCache{}
+	if stars != nil {
+		m.SetStars(stars)
+	}
+
+	m.IsBeginning = proto.Bool(stage.isBeginning)
+	m.IsPassed = proto.Bool(stage.isPassed)
+	m.IsPlayedAnimation = proto.Bool(stage.isPlayedAnimation)
+
+	m.SetSchemeId(stage.schemeId)
+	return m
+}
+
+func (this *UserStages) newStage(stageCache *StageCache) *Stage {
+	stars := make(map[int32]int32)
+	s := &Stage{}
+	s.schemeId = stageCache.GetSchemeId()
+	s.isPassed = stageCache.GetIsPassed()
+	s.isBeginning = stageCache.GetIsBeginning()
+	s.isPlayedAnimation = stageCache.GetIsPlayedAnimation()
+
+	for k, v := range stageCache.GetStars() {
+		stars[k] = v
+	}
+	if stars != nil {
+		s.stars = stars
+	}
+
+	return s
+}
+
+//统计所有星
+func (this *UserStages) calcAllStars() int32 {
+	var allStars int32 = 0
+	for _, stage := range this.Stages {
+		for _, v := range stage.stars {
+			if v == 1 {
+				allStars++
+			}
+		}
+	}
+
+	return allStars
+}
+
+func (this *UserStages) saveStageToDb(schemeId int32) bool {
+	if stage, ok := (*this).Stages[schemeId]; ok {
+		stageCache := this.newStageCache(stage)
+
+		buff, err := proto.Marshal(stageCache)
+		if err != nil {
+			galaxy.LogError(err)
+			return false
+		}
+		if _, err = RedisCmd("SET", this.key(this.user.GetUid(), stage.schemeId), buff); err != nil {
+			galaxy.LogError(err)
+			return false
+		}
+
+		if _, err := RedisCmd("SADD", this.keys(this.user.GetUid()), this.key(this.user.GetUid(), stage.schemeId)); err != nil {
+			galaxy.LogError(err)
+			return false
+		}
+
+		return true
+	}
+	return false
+}
+
+func (this *UserStages) static_stage_log(stage *Stage, status int32) {
+	msg := &static.MsgStaticStageLog{}
+	msg.SetRoleUid(this.user.GetUid())
+	msg.SetLv(this.user.GetLv())
+	msg.SetSchemeId(stage.schemeId)
+	msg.SetStatus(status)
+	if stage.isPassed {
+		msg.SetIsPassed(1)
+	} else {
+		msg.SetIsPassed(0)
+	}
+	msg.SetTimeStamp(time.Now().Unix())
+
+	buf, err := proto.Marshal(msg)
+	if err != nil {
+		galaxy.LogError(err)
+		return
+	}
+	global.SendToStaticServer(int32(static.MsgStaticCode_StageLog), buf)
+}

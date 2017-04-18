@@ -1,0 +1,8 @@
+syntax="proto2";
+
+package cache;
+
+message MallCache
+{
+	map<int32,int64> mall_list = 1;
+}

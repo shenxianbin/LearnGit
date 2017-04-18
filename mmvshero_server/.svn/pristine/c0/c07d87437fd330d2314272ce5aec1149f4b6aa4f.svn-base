@@ -1,0 +1,91 @@
+syntax="proto2";
+
+package protocol;
+
+import "award.proto";
+
+//掠夺类型
+enum ActivityOpenFlag
+{
+	Off = 0;
+	On = 1;
+}
+
+enum ActivityStatusFlag 
+{
+	CanGet	= 1;
+	CanNotGet = 0;
+	Geted	= -1;
+};
+
+message ActivityOpenInfo
+{
+	required int32 id = 1;
+	required int32 isOpen = 2;
+}
+
+message MsgActivityListReq 
+{
+	
+}
+
+message MsgActivityListRet
+{
+	repeated ActivityOpenInfo infos = 1;
+}
+
+message MsgActivityListNotify
+{
+	repeated ActivityOpenInfo infos = 1;
+}
+
+message ActivityBoxInfo
+{
+	required int32 index = 1;
+	required int32 status = 2;
+	required int64 condition = 3;
+}
+
+message MsgActivityQueryReq
+{
+	required int32 id = 1;
+}
+
+message MsgActivityQueryRet
+{
+	required int32 id = 1;
+	repeated int32 int_values = 2;
+	repeated ActivityBoxInfo infos = 3;
+}
+
+message MsgActivityOperateReq
+{
+	required int32 id = 1;
+	required int32 index = 2;
+}
+
+message MsgActivityOperateRet
+{
+	required int32 retcode= 1;
+	required int32 id = 2;
+	repeated AwardInfo infos = 3;
+}
+
+message ActivityStatusInfo
+{
+	required int32 id = 1;
+	required int32 index = 2;
+	required int32 status = 3;
+	required int64 condition = 4;
+}
+
+message MsgActivityAwardStatusChangeNotify
+{
+	repeated ActivityStatusInfo infos = 1;
+}
+
+message MsgActivityValueStatusChangeNotify
+{
+	required int32 id = 1;
+	required int64 value_status_info = 2;
+}

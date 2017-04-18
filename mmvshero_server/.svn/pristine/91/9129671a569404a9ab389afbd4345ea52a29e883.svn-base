@@ -1,0 +1,16 @@
+syntax="proto2";
+
+package protocol;
+
+message MsgLanternNotify
+{
+	required int32 type = 1;
+	required int32 id = 2;
+	required int64 time = 3;
+	required bytes content = 4;
+}
+
+message MsgLanternReq
+{
+	
+}

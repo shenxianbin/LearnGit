@@ -1,0 +1,6 @@
+aliasName =default
+driverName=mysql
+#username:password@protocol(address)/dbname?param=value
+dataSource=root:root@tcp(127.0.0.1:3306)/payment?charset=utf8
+maxIdleConns=30
+maxOpenConns=30

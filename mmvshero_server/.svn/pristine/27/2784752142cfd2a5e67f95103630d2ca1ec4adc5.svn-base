@@ -1,0 +1,39 @@
+syntax="proto2";
+
+package cache;
+
+message RoleCache
+{
+	required int64 uid = 1;
+	required string nickname = 2;
+	required int32 nickname_flag = 3;
+	required int32 lv = 4;
+	required int32 exp = 5;
+	required int32 order = 6;
+	required int64 order_timestamp = 7;
+	required int32 spirit = 8;
+	required int64 spirit_timestamp = 9;
+	required int64 soul = 10;
+	required int64 blood = 11;
+	required int32 stone = 12;
+	required int32 gold = 13;
+	required int32 free_gold = 14;
+	required int32 trophy = 15;
+	required int32 leagueLv = 16;
+	required int32 attack_win_count = 17;
+	required int32 defence_win_count = 18;
+	required int64 shield = 19;
+	required int64 vip = 20;
+	required int32 chat_free_time = 21;
+	required int64 chat_refresh_timestamp = 22;
+	required int32 magic_queue_type = 23;
+	required int64 magic_queue_id = 24;
+	required int32 new_player_guide_step = 25;
+	required int64 loginTime = 26;
+}
+
+message RoleStateCache
+{
+	required int32 online_server = 1;
+	required int64 fight_lock = 2;
+}

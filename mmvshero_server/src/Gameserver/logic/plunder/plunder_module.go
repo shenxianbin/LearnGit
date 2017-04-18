@@ -1,0 +1,436 @@
+package plunder
+
+import (
+	"Gameserver/global"
+	"Gameserver/logic"
+	"common/protocol"
+	. "galaxy"
+
+	"github.com/golang/protobuf/proto"
+)
+
+func InitPlunderModule() {
+	plunderPool = new(Pool)
+	plunderPool.Init()
+
+	init_protocol()
+}
+
+func init_protocol() {
+	//护送 查询
+	//message MsgPlunderQueryReq
+	//message MsgPlunderQueryRet
+	global.RegisterMsg(int32(protocol.MsgCode_PlunderQueryReq), func(sid int64, msg []byte) {
+		LogDebug("MsgCode_PlunderQueryReq")
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		retcode, info := role.PlunderQuery()
+
+		retMsg := &protocol.MsgPlunderQueryRet{
+			Retcode: proto.Int32(int32(retcode)),
+			Teams:   info,
+		}
+
+		buf, err := proto.Marshal(retMsg)
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+		global.SendMsg(int32(protocol.MsgCode_PlunderQueryRet), sid, buf)
+	})
+
+	////护送 队伍出发
+	//message MsgPlunderGuardReq
+	//message MsgPlunderGuardRet
+	global.RegisterMsg(int32(protocol.MsgCode_PlunderGuardReq), func(sid int64, msg []byte) {
+		LogDebug("MsgCode_PlunderGuardReq")
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		reqMsg := &protocol.MsgPlunderGuardReq{}
+		err := proto.Unmarshal(msg, reqMsg)
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+
+		team, retcode := role.PlunderGuard(reqMsg.GetPos(), reqMsg.GetHeros(), reqMsg.GetProperties(), reqMsg.GetPlunderAwardId())
+
+		retMsg := &protocol.MsgPlunderGuardRet{
+			Retcode: proto.Int32(int32(retcode)),
+			Teams:   team,
+		}
+
+		buf, err := proto.Marshal(retMsg)
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+		global.SendMsg(int32(protocol.MsgCode_PlunderGuardRet), sid, buf)
+	})
+
+	////护送 领取
+	//message MsgPlunderAwardReq
+	//message MsgPlunderAwardRet
+	global.RegisterMsg(int32(protocol.MsgCode_PlunderAwardReq), func(sid int64, msg []byte) {
+		LogDebug("MsgCode_PlunderAwardReq")
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		reqMsg := &protocol.MsgPlunderAwardReq{}
+		err := proto.Unmarshal(msg, reqMsg)
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+
+		retcode := role.PlunderAward(reqMsg.GetPos())
+
+		retMsg := &protocol.MsgPlunderAwardRet{
+			Retcode: proto.Int32(int32(retcode)),
+			Pos:     proto.Int32(int32(reqMsg.GetPos())),
+		}
+
+		buf, err := proto.Marshal(retMsg)
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+		global.SendMsg(int32(protocol.MsgCode_PlunderAwardRet), sid, buf)
+	})
+
+	////护送 购买护盾
+	//message MsgPlunderSheildReq
+	//message MsgPlunderSheildRet
+	global.RegisterMsg(int32(protocol.MsgCode_PlunderSheildReq), func(sid int64, msg []byte) {
+		LogDebug("MsgCode_PlunderSheildReq")
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		reqMsg := &protocol.MsgPlunderSheildReq{}
+		err := proto.Unmarshal(msg, reqMsg)
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+
+		retcode := role.PlunderSheild(reqMsg.GetPos())
+
+		retMsg := &protocol.MsgPlunderSheildRet{
+			Retcode: proto.Int32(int32(retcode)),
+			Pos:     proto.Int32(int32(reqMsg.GetPos())),
+		}
+
+		buf, err := proto.Marshal(retMsg)
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+		global.SendMsg(int32(protocol.MsgCode_PlunderSheildRet), sid, buf)
+	})
+
+	////护送方 日志（当前）
+	//message MsgPlunderGuardNowReportReq
+	//message MsgPlunderGuardNowReportRet
+	global.RegisterMsg(int32(protocol.MsgCode_PlunderGuardNowReportReq), func(sid int64, msg []byte) {
+		LogDebug("MsgCode_PlunderGuardNowReportReq")
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		reqMsg := &protocol.MsgPlunderGuardNowReportReq{}
+		err := proto.Unmarshal(msg, reqMsg)
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+
+		retcode, info := role.PlunderGuardNowReport(reqMsg.GetPos())
+
+		retMsg := &protocol.MsgPlunderGuardNowReportRet{
+			Retcode: proto.Int32(int32(retcode)),
+			Reports: info,
+		}
+		buf, err := proto.Marshal(retMsg)
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+		global.SendMsg(int32(protocol.MsgCode_PlunderGuardNowReportRet), sid, buf)
+	})
+
+	////护送方 日志（曾经）
+	//message MsgPlunderGuardBeforeReportReq
+	//message MsgPlunderGuardBeforeReportRet
+	global.RegisterMsg(int32(protocol.MsgCode_PlunderGuardBeforeReportReq), func(sid int64, msg []byte) {
+		LogDebug("MsgCode_PlunderGuardBeforeReportReq")
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		retcode, reports := role.PlunderGuardBeforeReport()
+
+		retMsg := &protocol.MsgPlunderGuardBeforeReportRet{
+			Retcode: proto.Int32(int32(retcode)),
+			TeamLog: reports,
+		}
+
+		buf, err := proto.Marshal(retMsg)
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+		global.SendMsg(int32(protocol.MsgCode_PlunderGuardBeforeReportRet), sid, buf)
+	})
+
+	////掠夺 请求
+	//message MsgPlunderSearchQueryReq
+	//message MsgPlunderSearchQueryRet
+	global.RegisterMsg(int32(protocol.MsgCode_PlunderSearchQueryReq), func(sid int64, msg []byte) {
+		LogDebug("MsgCode_PlunderSearchQueryReq")
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		buf, err := proto.Marshal(role.PlunderSearchQuery())
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+		global.SendMsg(int32(protocol.MsgCode_PlunderSearchQueryRet), sid, buf)
+	})
+	////掠夺 搜索
+	//message MsgPlunderSearchReq
+	//message MsgPlunderSearchRet
+	global.RegisterMsg(int32(protocol.MsgCode_PlunderSearchReq), func(sid int64, msg []byte) {
+		LogDebug("MsgCode_PlunderSearchReq")
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		buf, err := proto.Marshal(role.PlunderSearch())
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+		global.SendMsg(int32(protocol.MsgCode_PlunderSearchRet), sid, buf)
+	})
+
+	//复仇搜索
+	global.RegisterMsg(int32(protocol.MsgCode_PlunderRevengeSearchReq), func(sid int64, msg []byte) {
+		LogDebug("MsgPlunderRevengeSearchReq")
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		req := &protocol.MsgPlunderRevengeSearchReq{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+
+		buf, err := proto.Marshal(role.PlunderRevengeSearch(req.GetRoleUid(), req.GetReportId()))
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+		global.SendMsg(int32(protocol.MsgCode_PlunderRevengeSearchRet), sid, buf)
+	})
+
+	////掠夺 确认掠夺
+	//message MsgPlunderConfirmReq
+	//message MsgPlunderConfirmRet
+	global.RegisterMsg(int32(protocol.MsgCode_PlunderConfirmReq), func(sid int64, msg []byte) {
+		LogDebug("MsgPlunderConfirmReq")
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		req := &protocol.MsgPlunderConfirmReq{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+
+		buf, err := proto.Marshal(role.PlunderConfirm(req.GetRoleUid(), req.GetTeamId(), req.GetIsRevenge()))
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+		global.SendMsg(int32(protocol.MsgCode_PlunderConfirmRet), sid, buf)
+	})
+
+	////掠夺 更换对手
+	//message MsgPlunderChangeReq
+	//message MsgPlunderChangeRet
+	global.RegisterMsg(int32(protocol.MsgCode_PlunderChangeReq), func(sid int64, msg []byte) {
+		LogDebug("MsgPlunderChangeReq")
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		req := &protocol.MsgPlunderChangeReq{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+
+		buf, err := proto.Marshal(role.PlunderChange(req.GetRoleUid(), req.GetTeamId()))
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+		global.SendMsg(int32(protocol.MsgCode_PlunderChangeRet), sid, buf)
+	})
+
+	////掠夺 开战
+	global.RegisterMsg(int32(protocol.MsgCode_PlunderFightStartReq), func(sid int64, msg []byte) {
+		LogDebug("MsgPlunderFightStartReq")
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		req := &protocol.MsgPlunderFightStartReq{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+
+		buf, err := proto.Marshal(role.PlunderFightStart(req.GetRoleUid(), req.GetTeamId()))
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+		global.SendMsg(int32(protocol.MsgCode_PlunderFightStartRet), sid, buf)
+	})
+	//message MsgPlunderFightReq
+	//message MsgPlunderFightRet
+	global.RegisterMsg(int32(protocol.MsgCode_PlunderFightReq), func(sid int64, msg []byte) {
+		LogDebug("MsgPlunderFightReq")
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		req := &protocol.MsgPlunderFightReq{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+
+		buf, err := proto.Marshal(role.PlunderFight(req.GetRoleUid(), req.GetTeamId(), req.GetIsWin(), req.GetFightType()))
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+		global.SendMsg(int32(protocol.MsgCode_PlunderFightRet), sid, buf)
+	})
+	////掠夺 放弃
+	//message MsgPlunderGiveUpReq
+	//message MsgPlunderGiveUpRet
+	global.RegisterMsg(int32(protocol.MsgCode_PlunderGiveUpReq), func(sid int64, msg []byte) {
+		LogDebug("MsgPlunderGiveUpReq")
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		req := &protocol.MsgPlunderGiveUpReq{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+
+		buf, err := proto.Marshal(role.PlunderGiveUp(req.GetRoleUid(), req.GetTeamId()))
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+		global.SendMsg(int32(protocol.MsgCode_PlunderGiveUpRet), sid, buf)
+	})
+	//购买次数
+	global.RegisterMsg(int32(protocol.MsgCode_PlunderPurchaseReq), func(sid int64, msg []byte) {
+		LogDebug("MsgPlunderPurchaseReq")
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		buf, err := proto.Marshal(role.PlunderPurchase())
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+		global.SendMsg(int32(protocol.MsgCode_PlunderPurchaseRet), sid, buf)
+	})
+	//放弃搜索
+	global.RegisterMsg(int32(protocol.MsgCode_PlunderSearchCancelReq), func(sid int64, msg []byte) {
+		LogDebug("MsgPlunderSearchCancelReq")
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		req := &protocol.MsgPlunderSearchCancelReq{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+
+		buf, err := proto.Marshal(role.PlunderSearchCancel(req.GetRoleUid(), req.GetTeamId()))
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+		global.SendMsg(int32(protocol.MsgCode_PlunderSearchCancelRet), sid, buf)
+	})
+	////掠夺 日志
+	//message MsgPlunderReportReq
+	//message MsgPlunderReportRet
+	global.RegisterMsg(int32(protocol.MsgCode_PlunderReportReq), func(sid int64, msg []byte) {
+		LogDebug("MsgCode_PlunderReportReq")
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		retcode, reports := role.PlunderReport()
+
+		retMsg := &protocol.MsgPlunderReportRet{
+			Retcode: proto.Int32(int32(retcode)),
+			Reports: reports,
+		}
+
+		buf, err := proto.Marshal(retMsg)
+		if err != nil {
+			LogDebug(err)
+			return
+		}
+		global.SendMsg(int32(protocol.MsgCode_PlunderReportRet), sid, buf)
+	})
+
+}

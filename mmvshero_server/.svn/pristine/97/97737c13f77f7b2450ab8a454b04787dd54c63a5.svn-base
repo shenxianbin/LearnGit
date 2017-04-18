@@ -1,0 +1,12 @@
+syntax="proto2";
+
+package cache;
+
+message SoldierCache
+{
+	required int32	schemeId = 1 ;//scheme id
+	required int32	num = 2 ;
+	required int32	level = 3;
+	required int32	stage = 4;
+	map<int32,int32> skillLevel = 5;
+}

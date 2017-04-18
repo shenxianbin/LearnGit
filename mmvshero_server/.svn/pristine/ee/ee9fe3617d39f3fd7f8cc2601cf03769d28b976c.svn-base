@@ -1,0 +1,232 @@
+package logic
+
+import (
+	"common"
+	"common/protocol"
+)
+
+type IRole interface {
+	GetSid() int64
+	GetUid() int64
+
+	SetNickname(name string) common.RetCode
+	GetNickname() string
+
+	GetLv() int32
+
+	AddExp(value int32, is_notify bool, is_save bool)
+	GetExp() int32
+
+	EditOrder(value int32, is_notify bool, is_save bool)
+	AddOrder(value int32, is_notify bool, is_save bool)
+	CostOrder(value int32, is_notify bool, is_save bool)
+	IsEnoughOrder(value int32) bool
+	GetOrder() int32
+
+	EditSoul(value int64, is_notify bool, is_save bool)
+	AddSoul(value int32, is_notify bool, is_save bool)
+	IsEnoughSoul(value int32) bool
+	ResetSoul(is_notify bool, is_save bool)
+	CostSoul(value int32, is_notify bool, is_save bool)
+	GetSoul() int64
+
+	EditStone(value int32, is_notify bool, is_save bool)
+	AddStone(value int32, is_notify bool, is_save bool)
+	CostStone(value int32, is_notify bool, is_save bool)
+	IsEnoughStone(value int32) bool
+	GetStone() int32
+
+	EditGold(value int32, is_notify bool, is_save bool)
+	AddGold(value int32, is_notify bool, is_save bool)
+	EditFreeGold(value int32, is_notify bool, is_save bool)
+	AddFreeGold(value int32, is_notify bool, is_save bool)
+	IsEnoughGold(value int32) bool
+	ResetGold(is_notify bool, is_save bool)
+	ResetFreeGold(is_notify bool, is_save bool)
+	CostGold(value int32, is_notify bool, is_save bool)
+	GetGold() int32
+
+	SetVip(vip_timestamp int64, is_notify bool, is_save bool)
+	IsVip() bool
+
+	CostChatFreeTime(is_notify bool, is_save bool) bool
+
+	SetNewPlayerGuideStep(step int32, is_save bool)
+	GetLoginTime() int64
+
+	OfflineRole(role_uid int64) IRole
+	OfflineRoleBase(role_uid int64) IRoleBase
+
+	SendUpdateinfo(attr_type protocol.RoleAttrType, attr_value int64)
+	StaticPayLog(paytype int32, scheme_id int32, gold int32)
+	Offline()
+
+	GetMapSize() (int32, int32)
+	GetSoldierLimit() int32
+	GetHeroLimit() int32
+	GetDigLimit() int32
+	GetFortressLimit() int32
+	GetPlunderSearchNeedSoul() int32
+	GetPlunderTeam() []int32
+	GetPlunderDailyTimes() int32
+	GetHeroCreateCost() int32
+
+	KingSkillLvUp(skillId int32) common.RetCode
+	KingEditSkillLv(skillId int32, lv int32) common.RetCode
+
+	//道具
+	ItemAdd(scheme_id int32, num int32, is_notify bool) common.RetCode
+	ItemAddByUid(uid int64, num int32, is_notify bool) common.RetCode
+	ItemCost(scheme_id int32, num int32, is_notify bool) common.RetCode
+	ItemCostByUid(uid int64, num int32, is_notify bool) common.RetCode
+	ItemFixNum(uid int64, num int32, is_notify bool) common.RetCode
+	ItemIsEnough(scheme_id int32, num int32) bool
+	ItemIsEnoughByUid(uid int64, num int32) bool
+	ItemGet(item_uid int64) IItem
+	ItemUse(items []*protocol.ItemUseInfo, user_type protocol.ItemUserType, user_id int64) common.RetCode
+
+	//魔物
+	SoldierCreateFree(soldierId, num int32) bool
+	SoldierEditNum(soldierId, num int32) bool
+	SoldierLevelUp(soldierId int32, item_scheme_id int32, num int32) bool
+	SoldierEditLv(soldierId int32, lv int32) bool
+	SoldierSkillLevelUp(soldierId int32, skillId int32) bool
+	SoldierEditSkillLv(soldierId int32, skillId int32, lv int32) bool
+	SoldierGetInCamp(id int32) ISoldier
+	SoldierNum(schemeId int32) int32
+	SoldierUnlock(soldierId int32)
+	SoldierFreshLv(kingLv int32)
+	FillAllSoldiersInfo() *protocol.AllSoldiers
+	SoldierSendAll()
+	SoldierAllId() []int32
+
+	//魔使
+	HeroGet(hero_uid int64) IHero
+	HeroCost(hero_uid int64, is_notify bool)
+	HeroObtain(hero_scheme_id int32, hero_lv int32, hero_rank int32, is_notify bool) (int64, common.RetCode)
+	HeroFreshLv(kingLv int32)
+
+	HeroLvUp(hero_uid int64, item_scheme_id int32, num int32, is_notify bool) common.RetCode
+	HeroSkillLvUp(hero_uid int64, skill_id int32, is_notify bool) common.RetCode
+	HeroMix(hero_uid int64, hero_uids []int64, is_notify bool) common.RetCode
+	HeroSize() int32
+	HeroFind(hero_uid int64) bool
+	HeroPopulation(hero_uid int64) int32
+	HeroEditLv(hero_uid int64, lv int32, is_notify bool) common.RetCode
+	HeroEditRank(hero_uid int64, rank int32, is_notify bool) common.RetCode
+	HeroEditSkillLv(hero_uid int64, skill_id int32, lv int32, is_notify bool) common.RetCode
+
+	//建筑
+	BuildingObtain(scheme_id int32, lv int32, is_notify bool) (int64, common.RetCode)
+	BuildingSize() int32
+	BuildingFind(building_uid int64) bool
+	BuildingLvUp(building_uid int64, is_notify bool) common.RetCode
+	BuildingEditLv(building_uid int64, lv int32, is_notify bool) common.RetCode
+
+	//地图
+	MapSetPoint(x int32, y int32, base_type int32, obj_type int32, id int64)
+	MapFindHero(uid int64) bool
+	MapReFresh(map_info []*protocol.MapGridInfo, map_point_active []int32) common.RetCode
+	MapExpand(x_size int32, y_size int32) error
+	MapFreshObstacle(scheme_id int32, pos_x int32, pos_y int32) common.RetCode
+	MapRemoveObstacle(scheme_id int32, pos_x int32, pos_y int32) common.RetCode
+	MapUnLockPoint(pointId int32) common.RetCode
+
+	//关卡
+	StageAll() *protocol.MsgStageAllRet
+	StageBegin(schemeId int32) common.RetCode
+	StageFinish(schemeId int32, isPassed bool, stars map[int32]int32, isSweep bool, sweepTimes int32) *protocol.MsgStageFinishRet
+	StagePlayAnimation(int32) common.RetCode
+	StagePurchase(schemeId int32) *protocol.MsgStagePurchaseRet
+
+	//任务
+	MissionAll() *protocol.MsgMissionAllRet
+	MissionFinish(schemeId int32) common.RetCode
+	MissionAddNum(schemeId, num, targetLevel int32) (common.RetCode, int32)
+	//成就
+	AchievementAddNum(schemeId, num int32, isReplace bool) (common.RetCode, int32)
+	AchievementFinish(schemeId int32) common.RetCode
+	AchievementAll() *protocol.MsgAchievementAllRet
+
+	//Sign
+	SignInit() *protocol.SignInfo
+	SignIn() (common.RetCode, *protocol.SignInfo)
+	FixVipSignIn()
+
+	//Mall
+	FillMallInfo() []*protocol.MallInfo
+	MallBuy(id int32) (common.RetCode, int32, int64)
+	MallGoldFill(soul int32) common.RetCode
+
+	//friend
+	FriendAll() *protocol.MsgFriendAllRet
+	FriendSearch(alias string) (*protocol.Friend, common.RetCode)
+	FriendDelete(friendIds []int64) common.RetCode
+	FriendSendExcitation(friendIds []int64) int32
+	FriendUseExcitation(friendIds []int64) int32
+	FriendSavePvpResult(friendId int64, attackerWin bool, record string) common.RetCode
+
+	FriendRequestAll() *protocol.MsgFriendRequestAllRet
+	FriendRequestAdd(friendId int64) common.RetCode
+	FriendRequestDealWith(friendId int64, isAgreed bool) common.RetCode
+	FriendInviteAddId(inviteId int64) common.RetCode
+
+	//Chat
+	ChatQuery(chat_type protocol.ChatType) (common.RetCode, []*protocol.ChatInfo)
+	Chat(chat_type protocol.ChatType, role_uid int64, content []byte) (common.RetCode, *protocol.ChatInfo)
+
+	//FightReport
+	FightReportQuery() []*protocol.FightReportInfo
+	FightReportQueryById(uid int64) (common.RetCode, *protocol.FightReportInfo)
+	FightReportAdd(active_uid int64, passive_uid int64, info *protocol.FightReportInfo)
+	FightReportUpdate(report_uid int64, info *protocol.FightReportInfo)
+
+	//联盟号 别名
+	GetAlias() string
+	GetAliasByRoleId(roleId int64) string
+	GetRoleIdByAlias(alias string) int64
+
+	//Plunder
+	PlunderUnLockProperties(id int32)
+	PlunderQuery() (common.RetCode, []*protocol.PlunderTeam)
+	PlunderGuard(pos int32, heros []int64, properties []int32, plunder_award_id int32) (*protocol.PlunderTeam, common.RetCode)
+	PlunderAward(pos int32) common.RetCode
+	PlunderSheild(pos int32) common.RetCode
+	PlunderGuardNowReport(pos int32) (common.RetCode, []*protocol.PlunderReport)
+	PlunderGuardBeforeReport() (common.RetCode, []*protocol.PlunderTeamLog)
+	PlunderReport() (common.RetCode, []*protocol.PlunderReport)
+	PlunderSearchQuery() *protocol.MsgPlunderSearchQueryRet
+	PlunderSearch() *protocol.MsgPlunderSearchRet
+	PlunderRevengeSearch(roleUid, reportUid int64) *protocol.MsgPlunderRevengeSearchRet
+	PlunderConfirm(roleUid, teamId int64, isRevenge bool) *protocol.MsgPlunderConfirmRet
+	PlunderChange(roleUid, teamId int64) *protocol.MsgPlunderChangeRet
+	PlunderFightStart(roleUid, teamId int64) *protocol.MsgPlunderFightStartRet
+	PlunderFight(roleUid, teamId int64, win bool, fight_type int32) *protocol.MsgPlunderFightRet
+	PlunderGiveUp(roleUid, teamId int64) *protocol.MsgPlunderGiveUpRet
+	PlunderPurchase() *protocol.MsgPlunderPurchaseRet
+	PlunderSearchCancel(roleUid, teamId int64) *protocol.MsgPlunderSearchCancelRet
+
+	//Arena
+	EditArenaPoint(value int32, is_notify bool, is_save bool)
+	AddArenaPoint(value int32, is_notify bool, is_save bool)
+	CostArenaPoint(value int32, is_notify bool, is_save bool)
+	IsEnoughArenaPoint(value int32) bool
+
+	ArenaQuery() (ret *protocol.MsgArenaQueryRet)
+	ArenaFight(score int32) (ret *protocol.MsgArenaFightRet)
+	ArenaShopQuery() (ret *protocol.MsgArenaShopQueryRet)
+	ArenaShopBuy(pos int32) (ret *protocol.MsgArenaShopBuyRet)
+
+	//GM
+	GmProcess(is_notify bool)
+}
+
+type IRoleBase interface {
+	GetUid() int64
+	GetNickname() string
+	GetLv() int32
+	GetSoul() int64
+	GetGold() int32
+	IsVip() bool
+	GetLoginTime() int64
+}

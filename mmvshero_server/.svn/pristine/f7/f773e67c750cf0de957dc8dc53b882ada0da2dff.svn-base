@@ -1,0 +1,530 @@
+package king
+
+import (
+	. "Gameserver/cache"
+	"Gameserver/global"
+	. "Gameserver/logic"
+	"common"
+	"common/define"
+	"common/protocol"
+	"common/scheme"
+	"common/static"
+	"errors"
+	"fmt"
+	. "galaxy"
+	"strconv"
+	"strings"
+
+	"github.com/golang/protobuf/proto"
+)
+
+const (
+	cache_king_key_t = "Role:%v:King"
+)
+
+func GenKingCacheKey(role_uid int64) string {
+	return fmt.Sprintf(cache_king_key_t, role_uid)
+}
+
+func (this *King) KingGetQueueId() int32 {
+	return this.queueSkillId
+}
+
+type King struct {
+	KingCache
+	owner        IRole
+	cache_key    string
+	scheme_data  *scheme.KingLvUp
+	queueSkillId int32
+}
+
+func (this *King) Init(owner IRole) {
+	this.owner = owner
+	this.KingCache.KingSkills = make(map[int32]*KingSkill)
+	this.cache_key = GenKingCacheKey(this.owner.GetUid())
+}
+
+func (this *King) Create() error {
+	scheme_data, has := scheme.KingLvUpmap[scheme.Commonmap[define.InitialMagicKingLv].Value]
+	if !has {
+		return errors.New("King Create Scheme Error")
+	}
+	this.KingCache.SetKingLv(scheme.Commonmap[define.InitialMagicKingLv].Value)
+	this.scheme_data = scheme_data
+
+	this.fresh()
+	this.Save()
+	return nil
+}
+
+func (this *King) Load() error {
+	resp, err := GxService().Redis().Cmd("GET", this.cache_key)
+	if err != nil {
+		return err
+	}
+
+	if buf, _ := resp.Bytes(); buf != nil {
+		err = proto.Unmarshal(buf, &this.KingCache)
+		LogDebug("load king:", this.KingCache)
+		if err != nil {
+			LogError(err)
+			return err
+		}
+
+		for _, v := range this.KingCache.GetKingSkills() {
+			if v.GetTimestamp() > 0 {
+				this.queueSkillId = v.GetSkillId()
+				LogDebug("queueSkillId = ", v.GetSkillId())
+			}
+		}
+	}
+
+	var has bool
+	this.scheme_data, has = scheme.KingLvUpmap[this.KingCache.GetKingLv()]
+	if !has {
+		return errors.New("King Load Scheme Error")
+	}
+	return nil
+}
+
+func (this *King) Save() {
+	LogDebug("save king:", this.KingCache)
+	buf, err := proto.Marshal(&this.KingCache)
+	if err != nil {
+		LogFatal(err)
+		return
+	}
+
+	if _, err := GxService().Redis().Cmd("SET", this.cache_key, buf); err != nil {
+		LogFatal(err)
+		return
+	}
+}
+
+func (this *King) GetSoldierUnLock() []int32 {
+	list_str := strings.Split(this.scheme_data.SoldierUnlock, ";")
+	list := make([]int32, len(list_str))
+	for i, v := range list_str {
+		if v == "" {
+			continue
+		}
+		id, _ := strconv.Atoi(v)
+		list[i] = int32(id)
+	}
+	return list
+}
+
+func (this *King) GetSoldierObtain() []int32 {
+	list_str := strings.Split(this.scheme_data.SoldierObtain, ";")
+	list := make([]int32, len(list_str))
+	for i, v := range list_str {
+		if v == "" {
+			continue
+		}
+		id, _ := strconv.Atoi(v)
+		list[i] = int32(id)
+	}
+	return list
+}
+
+func (this *King) GetKingSkillId() []int32 {
+	skill_list_str := strings.Split(this.scheme_data.MagicKingSkillId, ";")
+	skill_list := make([]int32, len(skill_list_str))
+	for i, v := range skill_list_str {
+		if v == "" {
+			continue
+		}
+		id, _ := strconv.Atoi(v)
+		skill_list[i] = int32(id)
+	}
+	return skill_list
+}
+
+func (this *King) GetMapSize() (int32, int32) {
+	value := strings.Split(this.scheme_data.MapSize, ";")
+	x, _ := strconv.Atoi(value[0])
+	y, _ := strconv.Atoi(value[1])
+	return int32(x), int32(y)
+}
+
+func (this *King) GetPopLimit() int32 {
+	return this.scheme_data.PopLimit
+}
+
+func (this *King) GetDigLimit() int32 {
+	return this.scheme_data.DigLimit
+}
+
+func (this *King) GetEvoSpeedLimit() int32 {
+	return this.scheme_data.EvoSpeedLimit
+}
+
+func (this *King) GetPvpLimit() int32 {
+	return this.scheme_data.PvpLimit
+}
+
+func (this *King) GetPvpInterval() int32 {
+	return this.scheme_data.PvpInterval
+}
+
+func (this *King) GetPvpSearchNeedBlood() int32 {
+	return this.scheme_data.PvpSearchNeedBlood
+}
+
+func (this *King) GetMagicHeroLimit() int32 {
+	return this.scheme_data.MagicHeroLimit
+}
+
+func (this *King) GetFortressLimit() int32 {
+	return this.scheme_data.FortressLimit
+}
+
+func (this *King) FillKingInfo() *protocol.KingInfo {
+	msg := new(protocol.KingInfo)
+	msg.SetKingLv(this.KingCache.GetKingLv())
+	msg.KingSkills = make([]*protocol.KingSkill, len(this.KingCache.KingSkills))
+	index := 0
+	for _, v := range this.KingCache.KingSkills {
+		skill := new(protocol.KingSkill)
+		skill.SetSkillId(v.GetSkillId())
+		skill.SetLv(v.GetLv())
+		skill.SetTimestamp(v.GetTimestamp())
+		msg.KingSkills[index] = skill
+		index++
+	}
+	return msg
+}
+
+func (this *King) KingAddLv() common.RetCode {
+	if this.owner.GetLv() <= this.KingCache.GetKingLv() || this.KingCache.GetKingLv() >= scheme.Commonmap[define.MagicKingLvMax].Value {
+		LogError("add lv fail!:", this.owner.GetLv(), this.KingCache.GetKingLv(), this.KingCache.GetKingLv(), scheme.Commonmap[define.MagicKingLvMax].Value)
+		return common.RetCode_KingLvUpLimit
+	}
+
+	if !this.owner.IsEnoughBlood(this.scheme_data.NeedBlood) {
+		LogError("add lv fail! Blood : ", this.scheme_data.NeedBlood)
+		return common.RetCode_RoleNotEnoughBlood
+	}
+
+	if !this.owner.IsEnoughSoul(this.scheme_data.NeedSoul) {
+		LogError("add lv fail! Soul : ", this.scheme_data.NeedSoul)
+		return common.RetCode_RoleNotEnoughSoul
+	}
+
+	new_scheme, has := scheme.KingLvUpmap[this.KingCache.GetKingLv()+1]
+	if !has {
+		LogError("no new scheme")
+		return common.RetCode_SchemeData_Error
+	}
+
+	this.owner.CostBlood(this.scheme_data.NeedBlood, true, false)
+	this.owner.CostSoul(this.scheme_data.NeedSoul, true, true)
+	this.KingCache.SetKingLv(this.KingCache.GetKingLv() + 1)
+	this.scheme_data = new_scheme
+
+	this.fresh()
+	this.owner.MapExpand(this.GetMapSize())
+	this.owner.HeroFreshLv(this.KingCache.GetKingLv())
+	this.owner.SoldierFreshLv(this.KingCache.GetKingLv())
+
+	//完成成就
+	this.owner.AchievementAddNum(4, this.KingCache.GetKingLv(), true)
+
+	this.Save()
+	return common.RetCode_Success
+}
+
+func (this *King) KingAddLvGm(addLv int32) common.RetCode {
+	oldKingLv := this.KingCache.GetKingLv()
+	newKingLv := this.KingCache.GetKingLv() + addLv
+	var nowKingLv int32
+	for ; oldKingLv <= newKingLv && oldKingLv <= this.owner.GetLv(); oldKingLv++ {
+		king_scheme, has := scheme.KingLvUpmap[oldKingLv]
+		if has {
+			this.scheme_data = king_scheme
+			this.fresh()
+			nowKingLv = oldKingLv
+		} else {
+			LogError("no new scheme")
+			break
+		}
+	}
+
+	this.KingCache.SetKingLv(nowKingLv)
+	this.owner.HeroFreshLv(this.KingCache.GetKingLv())
+	this.owner.SoldierFreshLv(this.KingCache.GetKingLv())
+	this.owner.MapExpand(this.GetMapSize())
+
+	//完成成就
+	this.owner.AchievementAddNum(4, this.KingCache.GetKingLv(), true)
+
+	this.Save()
+	return common.RetCode_Success
+}
+
+func (this *King) fresh() {
+	soldierUnlock := this.GetSoldierUnLock()
+	for _, v := range soldierUnlock {
+		if v != 0 {
+			this.owner.SoldierUnlock(v)
+		}
+	}
+
+	soldierObtain := this.GetSoldierObtain()
+	for _, v := range soldierObtain {
+		if v != 0 {
+			if !this.owner.SoldierCreateFree(v, 1) {
+				LogError("SoldierObtain Error Id : ", v)
+			}
+		}
+	}
+
+	skill_list := this.GetKingSkillId()
+	for _, v := range skill_list {
+		_, has := this.KingSkills[v]
+		if !has && v != 0 {
+			skill := new(KingSkill)
+			skill.SetLv(scheme.Commonmap[define.InitialMagicKingSkillLv].Value)
+			skill.SetSkillId(v)
+			skill.SetTimestamp(0)
+			this.KingSkills[v] = skill
+			this.static_kingskill(skill.GetSkillId(), skill.GetLv())
+			this.Notify(skill, this.owner)
+		}
+	}
+}
+
+func (this *King) getSkillLvUpScheme(skillId, level int32) *scheme.KingSkillLvUp {
+	for _, v := range scheme.KingSkillLvUpmap {
+		if v.BaseId == skillId && v.Lv == level {
+			return v
+		}
+	}
+
+	return nil
+}
+
+func (this *King) Notify(skill *KingSkill, owner IRole) {
+	ret := &protocol.MsgKingSkillNotify{}
+	b := &protocol.KingSkill{}
+
+	b.SetLv(skill.GetLv())
+	b.SetSkillId(skill.GetSkillId())
+	b.SetTimestamp(skill.GetTimestamp())
+
+	ret.SetKingSkill(b)
+	buf, err := proto.Marshal(ret)
+	if err != nil {
+		LogError(err)
+		return
+	}
+
+	global.SendMsg(int32(protocol.MsgCode_KingSkillNotify), owner.GetSid(), buf)
+}
+
+func (this *King) KingSkillStartLvUp(skillId int32, usedCoin bool) common.RetCode {
+	LogDebug("enter KingSkillStartLvUp:", skillId, usedCoin)
+	skill, ok := this.KingSkills[skillId]
+	if !ok {
+		return common.RetCode_KingSkillIdError
+	}
+
+	if skill.GetTimestamp() != 0 {
+		return common.RetCode_KingSkillLvUpNow
+	}
+
+	skillLvUp := this.getSkillLvUpScheme(skillId, skill.GetLv())
+	if skillLvUp == nil {
+		LogError("common.RetCode_SchemeData_Error:", skillId, skill.GetLv())
+		return common.RetCode_SchemeData_Error
+	}
+
+	if this.GetKingLv() < skillLvUp.LvUpKingLv {
+		LogDebug(" this.GetKingLv() < skillLvUp.LvUpKingLv ", this.GetKingLv(), skillLvUp.LvUpKingLv)
+		return common.RetCode_KingSkillLvLimit
+	}
+
+	//立即升级
+	if usedCoin {
+		coin1 := ResourceToCoin(common.RTYPE_TIME, skillLvUp.LvUpTime)
+		coin2 := ResourceToCoin(common.RTYPE_BLOOD, skillLvUp.LvUpBlood)
+		coin3 := ResourceToCoin(common.RTYPE_SOUL, skillLvUp.LvUpSoul)
+		coin := coin1 + coin2 + coin3
+		if !this.owner.IsEnoughGold(coin) {
+			return common.RetCode_RoleNotEnoughGold
+		}
+
+		//立即升级
+		this.owner.CostGold(coin, true, true)
+		skill.SetLv(skill.GetLv() + 1)
+		skill.SetTimestamp(0)
+		this.static_kingskill(skill.GetSkillId(), skill.GetLv())
+		this.owner.StaticPayLog(int32(static.PayType_upKingskillOnekey), 0, coin)
+		this.Save()
+		this.Notify(skill, this.owner)
+		//完成成就
+		this.owner.AchievementAddNum(5, skill.GetLv(), true)
+		return common.RetCode_Success
+	}
+
+	//魔血魔魂
+	if !this.owner.IsEnoughBlood(skillLvUp.LvUpBlood) {
+		return common.RetCode_RoleNotEnoughBlood
+	}
+
+	if !this.owner.IsEnoughSoul(skillLvUp.LvUpSoul) {
+		return common.RetCode_RoleNotEnoughSoul
+	}
+
+	if this.queueSkillId > 0 || this.owner.BuildingGetQueueUid() > 0 {
+		LogDebug("queueSkillId > 0 || this.owner.BuildingGetQueueUid() > 0 : ", this.queueSkillId, this.owner.BuildingGetQueueUid())
+		return common.RetCode_QueueFull
+	}
+
+	this.owner.CostBlood(skillLvUp.LvUpBlood, true, false)
+	this.owner.CostSoul(skillLvUp.LvUpSoul, true, true)
+
+	skill.SetTimestamp(Time() + int64(skillLvUp.LvUpTime))
+	this.queueSkillId = skill.GetSkillId()
+	LogDebug("queueSkillId = ", skillId)
+
+	this.Save()
+	this.Notify(skill, this.owner)
+	return common.RetCode_Success
+}
+
+//使用货币减少升级时间
+func (this *King) KingSkillLvUpRemoveTime(skillId int32) common.RetCode {
+	skill, ok := this.KingSkills[skillId]
+	if !ok {
+		return common.RetCode_KingSkillIdError
+	}
+
+	if skill.GetTimestamp() == 0 || skill.GetTimestamp() < Time() {
+		LogDebug("skill.GetTimestamp() < Time()", skill.GetTimestamp(), Time())
+		return common.RetCode_Failed
+	}
+
+	skillLvUp := this.getSkillLvUpScheme(skillId, skill.GetLv())
+	if skillLvUp == nil {
+		return common.RetCode_SchemeData_Error
+	}
+
+	coin := ResourceToCoin(common.RTYPE_TIME, int32(skill.GetTimestamp()-Time()))
+	if this.owner.IsEnoughGold(coin) {
+		this.owner.CostGold(coin, true, true)
+		skill.SetLv(skill.GetLv() + 1)
+		skill.SetTimestamp(0)
+		this.queueSkillId = 0
+		this.static_kingskill(skill.GetSkillId(), skill.GetLv())
+		this.owner.StaticPayLog(int32(static.PayType_upKingskillSpeedup), 0, coin)
+		this.Save()
+		this.Notify(skill, this.owner)
+		//完成成就
+		this.owner.AchievementAddNum(5, skill.GetLv(), true)
+		return common.RetCode_Success
+	} else {
+		return common.RetCode_RoleNotEnoughGold
+	}
+}
+
+func (this *King) KingSkillCancelLvUp(skillId int32) common.RetCode {
+	skill, ok := this.KingSkills[skillId]
+	if !ok {
+		return common.RetCode_KingSkillIdError
+	}
+
+	if skill.GetTimestamp() == 0 {
+		return common.RetCode_Failed
+	}
+
+	skillLvUp := this.getSkillLvUpScheme(skillId, skill.GetLv())
+	if skillLvUp == nil {
+		return common.RetCode_SchemeData_Error
+	}
+
+	CancelMagicKingSkillReturn := scheme.Commonmap[define.CancelMagicKingSkillReturn].Value
+
+	this.owner.AddBlood(int32(skillLvUp.LvUpBlood*CancelMagicKingSkillReturn/100), true, true)
+	this.owner.AddSoul(int32(skillLvUp.LvUpSoul*CancelMagicKingSkillReturn/100), true, true)
+
+	skill.SetTimestamp(0)
+
+	this.queueSkillId = 0
+	LogDebug("queueSkillId = 0")
+
+	this.Save()
+	this.Notify(skill, this.owner)
+	return common.RetCode_Success
+}
+
+func (this *King) KingSkillFinishLvUp(skillId int32) common.RetCode {
+	skill, ok := this.KingSkills[skillId]
+	if !ok {
+		return common.RetCode_SoldierLvUpError
+	}
+
+	if skill.GetTimestamp() == 0 || skill.GetTimestamp() > Time() {
+		LogDebug("skill time:", skillId, skill.GetTimestamp(), Time())
+		return common.RetCode_Failed
+	}
+
+	LogDebug("skill.GetTimestamp() > Time() ", skill.GetTimestamp(), Time())
+
+	skillLvUp := this.getSkillLvUpScheme(skillId, skill.GetLv())
+	if skillLvUp == nil {
+		return common.RetCode_SchemeData_Error
+	}
+
+	skill.SetLv(skill.GetLv() + 1)
+	skill.SetTimestamp(0)
+	this.queueSkillId = 0
+	LogDebug("queueSkillId = 0")
+
+	this.static_kingskill(skill.GetSkillId(), skill.GetLv())
+
+	this.Save()
+	this.Notify(skill, this.owner)
+
+	//完成成就
+	this.owner.AchievementAddNum(5, skill.GetLv(), true)
+
+	return common.RetCode_Success
+}
+
+func (this *King) KingEditSkillLv(skillId int32, lv int32) common.RetCode {
+	skill, ok := this.KingSkills[skillId]
+	if !ok {
+		return common.RetCode_KingSkillIdError
+	}
+
+	skillLvUp := this.getSkillLvUpScheme(skillId, lv)
+	if skillLvUp == nil {
+		return common.RetCode_SchemeData_Error
+	}
+
+	skill.SetLv(lv)
+	skill.SetTimestamp(0)
+
+	this.static_kingskill(skillId, lv)
+
+	this.Save()
+	this.Notify(skill, this.owner)
+	//完成成就
+	this.owner.AchievementAddNum(5, skill.GetLv(), true)
+	return common.RetCode_Success
+}
+
+func (this *King) static_kingskill(skill_id int32, skill_lv int32) {
+	msg := &static.MsgStaticKingSkill{}
+	msg.SetRoleUid(this.owner.GetUid())
+	msg.SetSkillId(skill_id)
+	msg.SetSkillLv(skill_lv)
+
+	buf, err := proto.Marshal(msg)
+	if err != nil {
+		LogError(err)
+		return
+	}
+	global.SendToStaticServer(int32(static.MsgStaticCode_KingSkill), buf)
+}

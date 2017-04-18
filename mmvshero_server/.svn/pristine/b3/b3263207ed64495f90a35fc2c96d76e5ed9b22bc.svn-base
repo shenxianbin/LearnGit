@@ -1,0 +1,61 @@
+syntax = "proto2";
+
+package gm;
+
+//模块枚举
+enum CommandModule
+{
+	Role = 0;
+	Item = 1;
+	Hero = 2;
+	Soldier = 3;
+	Building = 4;
+}
+
+//订单性质
+enum CommandProperty
+{
+	New = 0;
+	Fix = 1;
+}
+
+//属性选项
+enum CommandOption 
+{
+	Lv = 0;
+	Exp = 1;
+	Order = 2;
+	Soul = 3;
+	ArenaPoint = 4;
+	Gold = 5;
+	FreeGold = 6;
+	SkillLv = 7;
+	Num = 8;
+	Stage = 9;
+	Rank = 10;
+}
+
+//数值运算
+enum CommandOperation
+{
+	Edit = 0;
+	Add = 1;
+}
+
+//订单状态
+enum OrderStatus
+{
+	NoProcess = 0;
+	Success = 1;
+	Fail = 2;
+}
+
+enum GmMsgCode 
+{
+	GmCommandNotify = 1;
+}
+
+message MsgGmCommandNotify
+{
+	required int64 uid = 1;
+}

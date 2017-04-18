@@ -1,0 +1,53 @@
+package scheme
+
+import (
+	"encoding/json"
+	"fmt"
+	. "galaxy"
+	"os"
+)
+
+type Soldier struct {
+	 Id 	 int32
+	 Show 	 int32
+	 Name 	 string
+	 Population 	 int32
+	 NeedItemId 	 int32
+	 Corpse 	 int32
+	 BattleType 	 int32
+	 RoleType 	 int32
+	 ShowSkillId 	 string
+	 Details 	 int32
+
+}
+
+var Soldiers []*Soldier
+var Soldiermap map[int32]*Soldier
+
+func LoadSoldier(filepath string) {
+    fileName := "Soldier.json"
+	file, err := os.Open(fmt.Sprintf("%s/%s", filepath, fileName))
+	if err != nil {
+		panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+	}
+	defer file.Close()
+
+	dec := json.NewDecoder(file)
+	_, err = dec.Token()
+	if err != nil {
+		panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+	}
+
+	Soldiermap = make(map[int32]*Soldier)
+	for dec.More() {
+		var temp Soldier
+		err := dec.Decode(&temp)
+		if err != nil {
+			panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+		}
+		Soldiers = append(Soldiers, &temp)
+		Soldiermap[temp.Id] = &temp
+	}
+
+	LogInfo("Load Soldier Scheme Success!")
+}

@@ -1,0 +1,39 @@
+syntax="proto2";
+
+import "role.proto";
+import "item.proto";
+import "hero.proto";
+import "soldier.proto";
+import "building.proto";
+import "decoration.proto";
+import "map.proto";
+
+package protocol;
+
+message MsgLoginAuthReq
+{
+	required string token_key = 1;
+}
+
+message MsgLoginAuthRet
+{
+	required int32 ret_code = 1;
+}
+
+message MsgLoginInReq
+{
+	required string token_key = 1;
+}
+
+message MsgLoginInRet
+{
+	required int64 system_time = 1;
+	required RoleInfo role_info = 2;
+	required ItemListInfo item_list_info = 3;
+	required HeroCreateInfo hero_create_info = 4;
+	required HeroListInfo hero_list_info = 5;
+	required AllSoldiers all_soldiers = 6;
+	required BuildingListInfo building_info = 7;
+	required DecorationListInfo decoration_list_info = 8;
+	required MapInfo map_info = 9;
+}

@@ -1,0 +1,84 @@
+syntax="proto2";
+
+package cache;
+
+message PlunderHeroSkillCache
+{
+	required int32 skill_id = 1;
+	required int32 skill_lv = 2;
+}
+
+message PlunderHeroCache
+{
+	required int64 uid = 1;
+	required int32 scheme_id = 2;
+	required int32 lv = 3;
+	required int32 stage = 4;
+	required int32 rank = 5;
+	map<int32,PlunderHeroSkillCache> skill_list = 6;
+	repeated int32 properties = 7;
+}
+
+message PlunderAwardCache
+{
+	required int32 type = 1;
+	required int32 code = 2;
+	required int32 amount = 3;
+}
+
+message PlunderTeamCache
+{
+	required int32 pos = 1;
+	required int64 team_id = 2;
+	required int32 plunder_id = 3;
+	required int64 role_uid = 4;
+	required string role_name = 5;
+	required int32 role_lv = 6;
+	repeated PlunderHeroCache heros = 7;
+	required int64 start_time = 8;
+	repeated PlunderAwardCache least_award = 9;
+	repeated PlunderAwardCache more_award = 10;
+	repeated string report_ids = 11;
+}
+
+//掠夺日志
+message PlunderReportCache
+{
+	required int64 report_id = 1;
+	required int64 attack_role_uid = 2;//掠夺方
+	required string attack_role_name = 3;
+	required int32 attack_role_lv = 4;
+	required int64 defence_role_uid = 5;//防守方
+	required string defence_role_name = 6;
+	required int32 defence_role_lv = 7;
+	repeated PlunderHeroCache heros = 8; //队伍
+	required int64 fight_time = 9;//战斗结束时间
+	repeated int32 fight_result = 10;//战斗结果
+	required int32 fight_type = 11;//战斗类型
+	required bool has_shield = 12; //是否护盾
+	repeated PlunderAwardCache plunder_award = 13; //掠夺资源
+	required bool is_revenged = 14;//是否复仇
+	required int64 revenge_cd = 15;//复仇CD
+}
+
+message PlunderTeamLogCache
+{
+	required int64 team_id = 1;
+	required int64 start_time = 2;
+	repeated string report_ids = 3;
+}
+
+message PlunderLogCache
+{
+	required int64 start_time = 1;
+	required string report_id = 2;
+}
+
+message PlunderCache
+{
+	map <int32, int32> properties = 1;
+	repeated PlunderTeamLogCache plunder_team_logs = 2;
+	repeated PlunderLogCache plunder_logs = 3;
+	required int32 attack_times_for_daily = 4;
+	required int64 last_attack_time_for_daily = 5;
+}

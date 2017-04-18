@@ -1,0 +1,58 @@
+package scheme
+
+import (
+	"encoding/json"
+	"fmt"
+	. "galaxy"
+	"os"
+)
+
+type ActionFlash struct {
+	 Id 	 int32
+	 Name 	 string
+	 SkeletonPath 	 string
+	 TexturePath 	 string
+	 DragonBones 	 string
+	 Skeleton 	 string
+	 Hit 	 string
+	 Die 	 string
+	 Walk 	 string
+	 Grap 	 string
+	 Standby 	 string
+	 Standby2 	 string
+	 HeadPosition 	 string
+	 ChestPosition 	 string
+	 Attack0Time 	 int32
+
+}
+
+var ActionFlashs []*ActionFlash
+var ActionFlashmap map[int32]*ActionFlash
+
+func LoadActionFlash(filepath string) {
+    fileName := "ActionFlash.json"
+	file, err := os.Open(fmt.Sprintf("%s/%s", filepath, fileName))
+	if err != nil {
+		panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+	}
+	defer file.Close()
+
+	dec := json.NewDecoder(file)
+	_, err = dec.Token()
+	if err != nil {
+		panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+	}
+
+	ActionFlashmap = make(map[int32]*ActionFlash)
+	for dec.More() {
+		var temp ActionFlash
+		err := dec.Decode(&temp)
+		if err != nil {
+			panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+		}
+		ActionFlashs = append(ActionFlashs, &temp)
+		ActionFlashmap[temp.Id] = &temp
+	}
+
+	LogInfo("Load ActionFlash Scheme Success!")
+}

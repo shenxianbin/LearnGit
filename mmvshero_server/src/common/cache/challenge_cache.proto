@@ -1,0 +1,25 @@
+syntax="proto2";
+
+package cache;
+
+import "plunder_cache.proto";
+
+message ChallengeLayer
+{
+	required int32 layer_id = 1; //layer_id 唯一
+	map<int32, int32> wave_info = 2; //波具体信息
+	required int32 ban_building_type = 3; //禁止建筑类型
+	required int32 ban_soldier_id = 4;//禁止魔物类型
+	required int32 ban_kingskill_id = 5;//禁止技能
+	repeated PlunderAwardCache awards = 6;//关卡奖励
+}
+
+message ChallengeCache
+{
+	required int32 challenge_count = 1;//挑战次数
+	required int32 challenge_chance = 2;
+	required int32 cur_layer = 3;
+	required int64 fresh_time = 4;
+	required int32 challenge_reset_times = 5;//挑战重置累计次数
+	map<int32, ChallengeLayer> layer = 6;
+}

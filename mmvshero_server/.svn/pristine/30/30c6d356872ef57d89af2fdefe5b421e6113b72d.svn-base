@@ -1,0 +1,53 @@
+syntax="proto2";
+package protocol;
+//魔物数据
+message Soldier
+{
+	required int32 schemeId=1;			//魔物 base id
+	required int32 level=2;				//魔物等级
+	required int32 stage=3;				//品阶等级 1：一阶 2：二阶 3：三阶
+	repeated SkillLevel skillLevel=4;		//技能等级
+	required int32 num=5;				//数量
+	required int32 exp=6;				//经验
+}
+
+message SkillLevel{
+	required int32 skillId =1;
+	required int32 skillLevel=2;
+}
+
+//all
+message AllSoldiers
+{
+	repeated Soldier soldiersInCamp = 1;
+}
+
+message MsgSoldierAllReq{
+
+}
+
+message MsgSoldierAllRet{
+	repeated Soldier soldiersInCamp = 1;
+}
+
+//變更通知
+message MsgSoldierNotify{
+	required Soldier soldier = 1;
+}
+
+//升级
+message MsgSoldierLvRet{
+	required int32 retCode=1;
+	required int32 level=2;
+	required int32 exp=3;
+}
+
+//魔物技能强化请求
+message MsgSoldierSkillLvReq{
+	required int32 soldierId=1;//魔物Id
+	required int32 skillId=2;//技能ID
+}
+
+message MsgSoldierSkillLvRet{
+	required int32 retCode=1;
+}

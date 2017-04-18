@@ -1,0 +1,1 @@
+/*! light-blue - v3.2.0 - 2015-10-05 */$(function(){function a(){$("#grid").magnificPopup({delegate:"li > a",type:"image",gallery:{enabled:!0}})}a(),PjaxApp.onPageLoad(a)});

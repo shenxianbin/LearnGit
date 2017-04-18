@@ -1,0 +1,48 @@
+package scheme
+
+import (
+	"encoding/json"
+	"fmt"
+	. "galaxy"
+	"os"
+)
+
+type MagicHeroCreate struct {
+	 Id 	 int32
+	 Name 	 string
+	 MagicValue 	 int32
+	 Drop 	 int32
+	 ActionFlashId 	 int32
+
+}
+
+var MagicHeroCreates []*MagicHeroCreate
+var MagicHeroCreatemap map[int32]*MagicHeroCreate
+
+func LoadMagicHeroCreate(filepath string) {
+    fileName := "MagicHeroCreate.json"
+	file, err := os.Open(fmt.Sprintf("%s/%s", filepath, fileName))
+	if err != nil {
+		panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+	}
+	defer file.Close()
+
+	dec := json.NewDecoder(file)
+	_, err = dec.Token()
+	if err != nil {
+		panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+	}
+
+	MagicHeroCreatemap = make(map[int32]*MagicHeroCreate)
+	for dec.More() {
+		var temp MagicHeroCreate
+		err := dec.Decode(&temp)
+		if err != nil {
+			panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+		}
+		MagicHeroCreates = append(MagicHeroCreates, &temp)
+		MagicHeroCreatemap[temp.Id] = &temp
+	}
+
+	LogInfo("Load MagicHeroCreate Scheme Success!")
+}

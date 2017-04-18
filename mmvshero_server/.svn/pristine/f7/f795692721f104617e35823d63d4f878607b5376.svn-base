@@ -1,0 +1,675 @@
+package plunder
+
+import (
+	. "Gameserver/logic"
+	"common"
+	. "common/cache"
+	"common/define"
+	"common/protocol"
+	"common/scheme"
+	"fmt"
+	. "galaxy"
+	"github.com/golang/protobuf/proto"
+	"time"
+)
+
+const (
+	troopsPoolKey   = "PlunderTroops"              //zset,value:team id, score:total exp
+	searchLockKey_  = "PlunderLock:%v:%v"          //%v role id, team id,value: attacker id
+	battleLockKey_  = "{Plunder}BattleLock:%v:%v"  //%v role id, team id,value: attacker id include max postWarLock, lostPostWarlock
+	postWarLockKey_ = "{Plunder}PostWarLock:%v:%v" //%v role id, team id,value: attacker id
+
+	currentMatchKey_       = "PlunderCurrentMatch:%v" //%v attacker id, value:defender id ,defender team id ("%v:%v")
+	attackTimesForTeamKey_ = "PlunderTimes:%v:%v:%v"  //%v attack id, defender id, team id, value: attack times
+
+	scriptDel = `if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+  return nil
+else
+  return redis.call('DEL', KEYS[1])
+end`
+
+	scriptGetPTTL = `if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+  return nil
+else
+  return redis.call('PTTL', KEYS[1])
+end`
+
+	scriptSetTeam = `if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+  return nil
+else
+  return redis.call('SET', KEYS[1], ARGV[2])
+end`
+
+	scriptSetBattleLock = `if redis.call('Get', KEYS[1]) ~= ARGV[1] then
+  return nil
+else
+  return redis.call('EXPIRE', KEYS[1], ARGV[2])
+end`
+
+	scriptChangeBattleLock = `if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+  return nil
+end
+local pttl = redis.call('PTTL', KEYS[1])
+redis.call('RENAME', KEYS[1], KEYS[2])
+if pttl > tonumber(ARGV[2]) then
+  return redis.call('EXPIRE', KEYS[2], ARGV[2])
+end
+return 1`
+)
+
+func searchLockKey(roleUid, teamId int64) string {
+	return fmt.Sprintf(searchLockKey_, roleUid, teamId)
+}
+
+func currentMatchKey(roleUid int64) string {
+	return fmt.Sprintf(currentMatchKey_, roleUid)
+}
+
+func battleLockKey(roleUid, teamId int64) string {
+	return fmt.Sprintf(battleLockKey_, roleUid, teamId)
+}
+
+func postWarLockKey(roleUid, teamId int64) string {
+	return fmt.Sprintf(postWarLockKey_, roleUid, teamId)
+}
+
+func attackTimesForTeamKey(attackerId, roleUid, teamId int64) string {
+	return fmt.Sprintf(attackTimesForTeamKey_, attackerId, roleUid, teamId)
+}
+
+func (this *PlunderSys) EnrollPool(roleUid, teamId, totalExp int64) bool {
+	resp, err := RedisCmd("ZADD", troopsPoolKey, totalExp, fmt.Sprintf("%v:%v", roleUid, teamId))
+	if err != nil {
+		return false
+	}
+
+	rows, err := resp.Int()
+	if err != nil {
+		return false
+	}
+
+	if rows == 0 {
+		return false
+	}
+
+	return true
+}
+
+func (this *PlunderSys) RemoveFromPool(roleUid, teamId int64) {
+	RedisCmd("ZREM", troopsPoolKey, fmt.Sprintf("%v:%v", roleUid, teamId))
+	RedisCmd("DEL", searchLockKey(roleUid, teamId))
+	RedisCmd("DEL", attackTimesForTeamKey(this.owner.GetUid(), roleUid, teamId))
+}
+
+func (this *PlunderSys) SearchTroop() (*PlunderTeam, bool) {
+	totalExp := scheme.RoleLvUpmap[this.owner.GetLv()].TotalExp + this.owner.GetExp()
+	LogDebug("totalExp:", totalExp)
+
+	resp, err := RedisCmd("ZRANGEBYSCORE", troopsPoolKey, "-inf", totalExp, "LIMIT", 0, scheme.Commonmap[define.PlunderSearchDownLimit].Value)
+	if err != nil {
+		return nil, false
+	}
+
+	leftTroops, err := resp.List()
+	if err != nil {
+		return nil, false
+	}
+
+	LogDebug("leftTroops:", leftTroops)
+
+	resp, err = RedisCmd("ZRANGEBYSCORE", troopsPoolKey, totalExp, "+inf", "LIMIT", 0, scheme.Commonmap[define.PlunderSearchUpLimit].Value)
+	if err != nil {
+		return nil, false
+	}
+
+	rightTroops, err := resp.List()
+	if err != nil {
+		return nil, false
+	}
+
+	LogDebug("rightTroops:", rightTroops)
+
+	troops := make(map[string]int)
+	for _, v := range leftTroops {
+		troops[v] = 1
+	}
+	for _, v := range rightTroops {
+		troops[v] = 1
+	}
+
+	LogDebug("troops:", troops)
+
+	rows := len(troops)
+	if rows == 0 {
+		return nil, false
+	}
+
+	var roleTeamId string
+	var roleUid, teamId int64
+	for {
+		if len(troops) == 0 {
+			LogDebug("troops is empty")
+			return nil, false
+		}
+
+		for roleTeamId, _ = range troops {
+			delete(troops, roleTeamId)
+			break
+		}
+
+		_, err := fmt.Sscanf(roleTeamId, "%d:%d", &roleUid, &teamId) //math.MaxInt64
+		if err != nil || roleUid == this.owner.GetUid() {
+			continue
+		}
+
+		if team, err := this.NormalSearchLock(roleUid, teamId); err == true {
+			return team, true
+		}
+	}
+	return nil, false
+}
+
+func (this *PlunderSys) NormalSearchLock(roleUid, teamId int64) (*PlunderTeam, bool) {
+	if this.CheckBattleLock(roleUid, teamId) == true {
+		return nil, false
+	}
+	LogDebug("CheckBattleLock:", roleUid, teamId)
+
+	if this.CheckPostWarLock(roleUid, teamId) == true {
+		return nil, false
+	}
+
+	LogDebug("CheckPostWarLock:", roleUid, teamId)
+
+	return this.searchLock(roleUid, teamId)
+}
+
+func (this *PlunderSys) RevengeSearchLock(roleUid, teamId int64) (*PlunderTeam, bool) {
+	team, err := this.loadTeam(roleUid, teamId)
+	if err != nil {
+		return nil, false
+	}
+
+	if team.IsSheild() {
+		return nil, false
+	}
+
+	return this.searchLock(roleUid, teamId)
+}
+
+//todo change to lua
+func (this *PlunderSys) searchLock(roleUid, teamId int64) (*PlunderTeam, bool) {
+	this.checkAttackTimesForDaily()
+	if this.GetAttackTimesForDaily() >= scheme.RoleLvUpmap[this.owner.GetLv()].PlunderDailyTimes {
+		LogDebug("this.GetAttackTimesForDaily():", this.GetAttackTimesForDaily())
+		return nil, false
+	}
+
+	if this.owner.IsEnoughSoul(scheme.RoleLvUpmap[this.owner.GetLv()].PlunderSearchNeedSoul) == false {
+		return nil, false
+	}
+
+	key := searchLockKey(roleUid, teamId)
+	resp, err := RedisCmd("SETNX", key, this.owner.GetUid())
+	if err != nil {
+		return nil, false
+	}
+
+	lockRows, err := resp.Int()
+	if err != nil {
+		RedisCmd("DEL", key)
+		return nil, false
+	}
+
+	LogDebug("lockRows:", lockRows, roleUid, teamId)
+	if lockRows == 1 {
+		team, err := this.loadTeam(roleUid, teamId)
+		if err != nil {
+			RedisCmd("DEL", key)
+			return nil, false
+		}
+
+		if Time()-team.GetStartTime()+int64(scheme.Commonmap[define.PlunderBattleLockTime].Value) > int64(scheme.PlunderAwardmap[team.GetPlunderId()].EscortTime*3600) {
+			this.RemoveFromPool(roleUid, teamId)
+			LogDebug("RemoveFromPool:", roleUid, teamId)
+			return nil, false
+		}
+
+		_, err = RedisCmd("EXPIRE", key, scheme.Commonmap[define.PlunderSearchLockTime].Value)
+		if err != nil {
+			return nil, false
+		}
+
+		this.owner.CostSoul(scheme.RoleLvUpmap[this.owner.GetLv()].PlunderSearchNeedSoul, true, true)
+		// RedisCmd("SETEX", currentMatchKey(this.owner.GetUid()), scheme.Commonmap[define.PlunderSearchLockTime].Value, fmt.Sprintf("%v:%v", roleUid, teamId))
+
+		return team, true
+	}
+	return nil, false
+}
+
+func (this *PlunderSys) CheckBattleLock(roleUid, teamId int64) bool {
+	resp, err := RedisCmd("EXISTS", battleLockKey(roleUid, teamId))
+	if err != nil {
+		return false
+	}
+	lockRows, err := resp.Int()
+	if err != nil {
+		return false
+	}
+
+	if lockRows == 1 {
+		return true
+	}
+	return false
+}
+
+func (this *PlunderSys) CheckPostWarLock(roleUid, teamId int64) bool {
+	resp, err := RedisCmd("EXISTS", postWarLockKey(roleUid, teamId))
+	if err != nil {
+		return false
+	}
+	lockRows, err := resp.Int()
+	if err != nil {
+		return false
+	}
+
+	if lockRows == 1 {
+		return true
+	}
+	return false
+}
+
+func (this *PlunderSys) ChangeTroop(selectedRoleUid, selectedTeamId int64) (*PlunderTeam, bool) {
+	this.CancelMatch(selectedRoleUid, selectedTeamId)
+	return this.SearchTroop()
+}
+
+func (this *PlunderSys) CancelMatch(selectedRoleUid, selectedTeamId int64) bool {
+	RedisCmd("DEL", currentMatchKey(this.owner.GetUid()))
+	key := searchLockKey(selectedRoleUid, selectedTeamId)
+
+	redis, err := GxService().Redis().GetClient(key)
+	if err != nil {
+		LogDebug("err:", err)
+		return false
+	}
+	resp := redis.Cmd("EVAL", scriptDel, 1, key, this.owner.GetUid())
+	LogDebug("resp:", resp)
+	if resp.IsNil() {
+		return false
+	}
+
+	row, err := resp.Int()
+	if err != nil {
+		LogDebug("err:", err)
+		return false
+	}
+
+	if row == 1 {
+		return true
+	}
+
+	return false
+}
+
+func (this *PlunderSys) BattleLock(selectedRoleUid, selectedTeamId int64, isRevenge bool) bool {
+	key := searchLockKey(selectedRoleUid, selectedTeamId)
+	redis, err := GxService().Redis().GetClient(key)
+	if err != nil {
+		return false
+	}
+
+	battleLockTime := scheme.Commonmap[define.PlunderBattleLockTime].Value
+	resp := redis.Cmd("EVAL", scriptSetBattleLock, 1, key, this.owner.GetUid(), battleLockTime)
+	if resp.IsNil() {
+		return false
+	}
+
+	if ret, err := resp.Int(); err != nil || ret == 0 {
+		return false
+	}
+
+	//todo 扣除当日掠夺次数
+	if isRevenge == false {
+		this.incrAttackTimesForDaily()
+	}
+
+	LostLockTime := scheme.Commonmap[define.PlunderLostLockTime].Value
+
+	RedisCmd("SETEX", currentMatchKey(this.owner.GetUid()), battleLockTime, fmt.Sprintf("%v:%v", selectedRoleUid, selectedTeamId))
+	RedisCmd("SETEX", attackTimesForTeamKey(this.owner.GetUid(), selectedRoleUid, selectedTeamId), battleLockTime, 0)
+	RedisCmd("SETEX", battleLockKey(selectedRoleUid, selectedTeamId), battleLockTime+LostLockTime, this.owner.GetUid())
+
+	LogDebug("SETEX", currentMatchKey(this.owner.GetUid()), battleLockTime, fmt.Sprintf("%v:%v", selectedRoleUid, selectedTeamId))
+	return true
+}
+
+//todo
+func (this *PlunderSys) postWarLock(roleUid, teamId int64, win bool) bool {
+	time := scheme.Commonmap[define.PlunderLostLockTime].Value
+	if win {
+		time = scheme.Commonmap[define.PlunderWinLockTime].Value
+	}
+
+	_, err := RedisCmd("SETEX", postWarLockKey(roleUid, teamId), time, this.owner.GetUid())
+	if err != nil {
+		return false
+	}
+
+	this.CancelMatch(roleUid, teamId)
+	return true
+}
+
+func (this *PlunderSys) loadTeam(roleUid, teamId int64) (*PlunderTeam, error) {
+	key := genPlunderTeamCacheKey(roleUid, teamId)
+	resp, err := RedisCmd("GET", key)
+	if err != nil {
+		return nil, err
+	}
+
+	if buf, _ := resp.Bytes(); buf != nil {
+		team := new(PlunderTeam)
+		err := proto.Unmarshal(buf, &team.PlunderTeamCache)
+		if err != nil {
+			return nil, err
+		}
+		return team, nil
+	}
+	return nil, nil
+}
+
+func (this *PlunderSys) getAttackTimesForTeam(roleUid, teamId int64) (int32, bool) {
+	resp, err := RedisCmd("GET", attackTimesForTeamKey(this.owner.GetUid(), roleUid, teamId))
+	if err != nil {
+		return 0, false
+	}
+
+	times, err := resp.Int()
+	if err != nil {
+		return 0, false
+	}
+
+	return int32(times), true
+}
+
+func (this *PlunderSys) incrAttackTimesForTeam(roleUid, teamId int64) (int32, bool) {
+	key := attackTimesForTeamKey(this.owner.GetUid(), roleUid, teamId)
+	resp, err := RedisCmd("INCR", key)
+	if err != nil {
+		return 0, false
+	}
+
+	times, err := resp.Int()
+	if err != nil {
+		return 0, false
+	}
+
+	return int32(times), true
+}
+
+func (this *PlunderSys) PlunderFight(selectedRoleUid, selectedTeamId int64, win bool) (ret *protocol.MsgPlunderFightRet) {
+	ret = &protocol.MsgPlunderFightRet{}
+	ret.SetRetcode(int32(common.RetCode_Failed))
+	key := searchLockKey(selectedRoleUid, selectedTeamId)
+	redis, err := GxService().Redis().GetClient(key)
+	if err != nil {
+		return
+	}
+	var times int32
+	if times, err := this.incrAttackTimesForTeam(selectedRoleUid, selectedTeamId); err != false || times > 3 {
+		return
+	}
+
+	ret.SetAttackTimesForTeam(times)
+
+	if win == false {
+		if times == 3 {
+			this.postWarLock(selectedRoleUid, selectedTeamId, win)
+		}
+		return
+	}
+
+	resp := redis.Cmd("EVAL", scriptGetPTTL, 1, key, this.owner.GetUid())
+	if resp.IsNil() {
+		return
+	}
+
+	pttl, err := resp.Int64()
+	if err != nil {
+		return
+	}
+
+	now := time.Now()
+
+	teamKey := genPlunderTeamCacheKey(selectedRoleUid, selectedTeamId)
+	redis, err = GxService().Redis().GetClient(teamKey)
+	if err != nil {
+		return
+	}
+
+	for {
+		duration := time.Now().Sub(now).Nanoseconds()
+		pttl = pttl - duration/1000000
+		if pttl < 0 {
+			return
+		}
+
+		team, err := this.loadTeam(selectedRoleUid, selectedTeamId)
+		if err != nil {
+			return
+		}
+
+		oldBuf, err := proto.Marshal(&team.PlunderTeamCache)
+		if err != nil {
+			LogFatal(err)
+			return
+		}
+
+		onceQuantity := scheme.PlunderAwardmap[team.GetPlunderId()].OnceQuantity
+		awards := team.GetMoreAward()
+		gainAwards := make([]*PlunderAwardCache, 0)
+		var chanaged bool = false
+		for k, v := range awards {
+			if v.GetAmount() == 0 {
+				continue
+			}
+			gainAmount := v.GetAmount() * onceQuantity / 100
+			if gainAmount == 0 {
+				gainAmount = 1
+			}
+			awards[k].SetAmount(v.GetAmount() - gainAmount)
+
+			gainAward := new(PlunderAwardCache)
+			gainAward.SetType(v.GetType())
+			gainAward.SetCode(v.GetCode())
+			gainAward.SetAmount(gainAmount)
+			gainAwards = append(gainAwards, gainAward)
+
+			chanaged = true
+		}
+
+		if chanaged == false {
+			break
+		}
+
+		team.SetMoreAward(awards)
+
+		newBuf, err := proto.Marshal(&team.PlunderTeamCache)
+		if err != nil {
+			LogFatal(err)
+			return
+		}
+
+		resp := redis.Cmd("EVAL", scriptSetTeam, 1, teamKey, oldBuf, newBuf)
+		if resp.IsNil() {
+			break
+		}
+
+		this.plunder_award(gainAwards)
+		this.postWarLock(selectedRoleUid, selectedTeamId, win)
+		ret.SetRetcode(int32(common.RetCode_Success))
+		return
+	}
+	return
+}
+
+func (this *PlunderSys) PlunderGiveUp(selectedRoleUid, selectedTeamId int64) (ret *protocol.MsgPlunderGiveUpRet) {
+	ret = &protocol.MsgPlunderGiveUpRet{}
+	ret.SetRetcode(int32(common.RetCode_Failed))
+	if this.CancelMatch(selectedRoleUid, selectedTeamId) == false {
+		return
+	}
+
+	battleKey := battleLockKey(selectedRoleUid, selectedTeamId)
+	postWarKey := postWarLockKey(selectedRoleUid, selectedTeamId)
+
+	redis, err := GxService().Redis().GetClient(battleKey)
+
+	if err != nil {
+		LogDebug("err:", err)
+		return
+	}
+
+	resp := redis.Cmd("EVAL", scriptChangeBattleLock, 2, battleKey, postWarKey, this.owner.GetUid(), scheme.Commonmap[define.PlunderLostLockTime].Value)
+	LogDebug("resp:", resp)
+	if resp.IsNil() {
+		LogDebug("resp:", resp)
+		return
+	}
+
+	row, err := resp.Int()
+	if err != nil {
+		LogDebug("err:", err)
+		return
+	}
+
+	if row == 1 {
+		ret.SetRetcode(int32(common.RetCode_Success))
+		return
+	}
+	return
+}
+
+func (this *PlunderSys) checkAttackTimesForDaily() {
+	if this.GetLastAttackTimeForDaily() < RefreshTime(scheme.Commonmap[define.SysResetTime].Value) {
+		this.SetLastAttackTimeForDaily(Time())
+		this.SetAttackTimesForDaily(0)
+	}
+}
+
+func (this *PlunderSys) incrAttackTimesForDaily() bool {
+	this.checkAttackTimesForDaily()
+	if this.GetAttackTimesForDaily() >= scheme.RoleLvUpmap[this.owner.GetLv()].PlunderDailyTimes {
+		return false
+	}
+	this.SetAttackTimesForDaily(this.GetAttackTimesForDaily() + 1)
+	this.Save()
+	return true
+}
+
+//todo chang to lua
+func (this *PlunderSys) PlunderSearchQuery() (ret *protocol.MsgPlunderSearchQueryRet) {
+	ret = &protocol.MsgPlunderSearchQueryRet{}
+	ret.SetRetcode(int32(common.RetCode_Failed))
+	this.checkAttackTimesForDaily()
+	ret.SetAttackTimesForDaily(this.GetAttackTimesForDaily())
+
+	//current match
+	LogDebug("currentMatchKey:", currentMatchKey(this.owner.GetUid()))
+	resp, err := RedisCmd("GET", currentMatchKey(this.owner.GetUid()))
+	if err != nil {
+		LogDebug("resp:", resp)
+		return
+	}
+	var roleUid, teamId int64
+	str, err := resp.Str()
+	if err != nil {
+		LogDebug("err:", err, resp)
+		return
+	}
+
+	_, err = fmt.Sscanf(str, "%v:%v", &roleUid, &teamId)
+	if err != nil {
+		LogDebug("err:", err, str)
+		return
+	}
+
+	resp, err = RedisCmd("TTL", currentMatchKey(this.owner.GetUid()))
+	if err != nil {
+		LogDebug("err:", err)
+		return
+	}
+
+	ttl, err := resp.Int64()
+	if err != nil {
+		LogDebug("err:", err)
+		return
+	}
+	ret.SetLocktime(Time() + ttl)
+
+	team, err := this.loadTeam(roleUid, teamId)
+	if err != nil {
+		LogDebug("err:", err)
+		return
+	}
+
+	times, _ := this.getAttackTimesForTeam(roleUid, teamId)
+	ret.SetAttackTimesForTeam(times)
+
+	ret.SetTeam(team.FillPlunderTeamInfo())
+	ret.SetRetcode(int32(common.RetCode_Success))
+	return
+}
+
+func (this *PlunderSys) PlunderSearch() (ret *protocol.MsgPlunderSearchRet) {
+	ret = &protocol.MsgPlunderSearchRet{}
+	team, err := this.SearchTroop()
+	if err == true {
+		ret.SetRetcode(int32(common.RetCode_Success))
+		ret.SetTeam(team.FillPlunderTeamInfo())
+	} else {
+		ret.SetRetcode(int32(common.RetCode_Failed))
+	}
+	return ret
+}
+
+func (this *PlunderSys) PlunderRevengeSearch(roleUid, teamId int64) (ret *protocol.MsgPlunderRevengeSearchRet) {
+	ret = &protocol.MsgPlunderRevengeSearchRet{}
+	ret.SetRetcode(int32(common.RetCode_Failed))
+
+	team, err := this.RevengeSearchLock(roleUid, teamId)
+	if err == false {
+		return
+	}
+
+	ret.SetRetcode(int32(common.RetCode_Success))
+	ret.SetTeam(team.FillPlunderTeamInfo())
+	return
+}
+
+func (this *PlunderSys) PlunderConfirm(roleUid, teamId int64, isRevenge bool) (ret *protocol.MsgPlunderConfirmRet) {
+	ret = &protocol.MsgPlunderConfirmRet{}
+	if this.BattleLock(roleUid, teamId, isRevenge) {
+		ret.SetRetcode(int32(common.RetCode_Success))
+	} else {
+		ret.SetRetcode(int32(common.RetCode_Failed))
+	}
+
+	this.checkAttackTimesForDaily()
+	ret.SetAttackTimesForDaily(this.GetAttackTimesForDaily())
+	ret.SetLocktime(Time() + int64(scheme.Commonmap[define.PlunderBattleLockTime].Value))
+	return
+}
+
+func (this *PlunderSys) PlunderChange(roleUid, teamId int64) (ret *protocol.MsgPlunderChangeRet) {
+	ret = &protocol.MsgPlunderChangeRet{}
+	team, err := this.ChangeTroop(roleUid, teamId)
+	if err == false {
+		ret.SetRetcode(int32(common.RetCode_Failed))
+	} else {
+		ret.SetRetcode(int32(common.RetCode_Success))
+		ret.SetTeam(team.FillPlunderTeamInfo())
+	}
+	return
+}

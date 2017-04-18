@@ -1,0 +1,56 @@
+package scheme
+
+import (
+	"encoding/json"
+	"fmt"
+	. "galaxy"
+	"os"
+)
+
+type Hero struct {
+	 Id 	 int32
+	 Show 	 int32
+	 Name 	 string
+	 Population 	 int32
+	 NeedItemId 	 int32
+	 RankNeedItemId 	 int32
+	 Corpse 	 int32
+	 BattleType 	 int32
+	 RoleType 	 int32
+	 MagicHeroRankId 	 int32
+	 ShowSkillId 	 string
+	 CostHp 	 int32
+	 Details 	 int32
+
+}
+
+var Heros []*Hero
+var Heromap map[int32]*Hero
+
+func LoadHero(filepath string) {
+    fileName := "Hero.json"
+	file, err := os.Open(fmt.Sprintf("%s/%s", filepath, fileName))
+	if err != nil {
+		panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+	}
+	defer file.Close()
+
+	dec := json.NewDecoder(file)
+	_, err = dec.Token()
+	if err != nil {
+		panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+	}
+
+	Heromap = make(map[int32]*Hero)
+	for dec.More() {
+		var temp Hero
+		err := dec.Decode(&temp)
+		if err != nil {
+			panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+		}
+		Heros = append(Heros, &temp)
+		Heromap[temp.Id] = &temp
+	}
+
+	LogInfo("Load Hero Scheme Success!")
+}

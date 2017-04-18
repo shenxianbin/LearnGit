@@ -1,0 +1,43 @@
+syntax="proto2";
+
+package protocol;
+
+message MsgFightReportReq
+{
+	
+}
+
+message FightReportInfo
+{
+	required int64 report_uid = 1;
+	required bytes fightReport = 2;
+}
+
+message MsgFightReportRet
+{
+	repeated FightReportInfo infos = 1;
+}
+
+message MsgFightReportIdReq
+{
+	required int64 report_uid = 1;
+}
+
+message MsgFightReportIdRet
+{
+	required int32 retcode = 1;
+	optional FightReportInfo info = 2;
+}
+
+message MsgFightReportAdd
+{
+	required int64 active_uid = 1;
+	required int64 passive_uid = 2;
+	required FightReportInfo info = 3;
+}
+
+message MsgFightReportUpdate
+{
+	required int64 report_uid = 1;
+	required FightReportInfo info = 2;
+}

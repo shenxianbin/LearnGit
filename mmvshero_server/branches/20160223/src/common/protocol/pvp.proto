@@ -1,0 +1,124 @@
+syntax="proto2";
+
+package protocol;
+
+import "map.proto";
+
+//打开界面
+message MsgPvpQueryReq
+{
+}
+
+message MsgPvpQueryRet
+{
+	required int32 retcode = 1;
+	required int32 rank = 2;
+}
+
+//排行榜
+message PvpRankInfo
+{
+	required int32 rank = 1;
+	required int64 role_uid = 2;
+	required string name = 3;
+	required int32 league_lv = 4;
+	required int32 trophy = 5;
+}
+
+message MsgPvpRankInfoReq
+{
+}
+
+message MsgPvpRankInfoRet
+{
+	required int32 retcode = 1;
+	required int32 rank = 2;
+	repeated PvpRankInfo my_rank = 3;
+	repeated PvpRankInfo top_rank = 4;
+}
+
+//出战
+message MsgPvpPrepareReq
+{
+	repeated int64 fight_hero_list = 1;
+}
+
+message MsgPvpPrepareRet
+{
+	required int32 retcode = 1;
+}
+
+//搜索对手 更换对手
+message MsgPvpMatchReq
+{
+}
+
+//指定对手战斗
+message MsgPvpMatchIdReq
+{
+	required int64 uid = 1;
+}
+
+message MsgPvpMatchRet
+{
+	required int32 retcode = 1;
+	optional PvpFightInfo info =2;
+}
+
+//开始战斗
+message MsgPvpStartReq
+{
+}
+
+message MsgPvpStartRet
+{
+	required int32 retcode = 1;
+}
+
+//结束战斗（放弃）
+message MsgPvpGiveUpReq
+{
+	
+} 
+
+message MsgPvpGiveUpRet
+{
+	required int32 retcode = 1;
+	required int32 trophy = 2;
+	required int32 stone = 3;
+}
+
+//结束战斗（完成）
+message MsgPvpFinishReq
+{
+	required bool isWin = 1;
+}
+
+message MsgPvpFinishRet
+{
+	required int32 retcode = 1;
+	required int32 trophy = 2;
+	required int32 stone = 3;
+}
+
+message WarSoliders{
+	repeated WarSolider soldiers=1;
+}
+
+message WarSolider{
+	required int32 schemeId=1;
+	required int32 num=2;
+}
+
+message WarHeroes{
+	repeated WarHero  heroes=1;
+}
+message WarHero{
+	required int64 uid=1;
+ }
+
+message CampInfo{
+	optional bytes soliders = 1;
+	optional bytes heroes=2;
+}
+

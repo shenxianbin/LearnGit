@@ -1,0 +1,50 @@
+package scheme
+
+import (
+	"encoding/json"
+	"fmt"
+	. "galaxy"
+	"os"
+)
+
+type Decoration struct {
+	 Id 	 int32
+	 MallId 	 int32
+	 Name 	 int32
+	 Size 	 string
+	 MaxNum 	 int32
+	 Icon 	 string
+	 DecorationFlashId 	 int32
+
+}
+
+var Decorations []*Decoration
+var Decorationmap map[int32]*Decoration
+
+func LoadDecoration(filepath string) {
+    fileName := "Decoration.json"
+	file, err := os.Open(fmt.Sprintf("%s/%s", filepath, fileName))
+	if err != nil {
+		panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+	}
+	defer file.Close()
+
+	dec := json.NewDecoder(file)
+	_, err = dec.Token()
+	if err != nil {
+		panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+	}
+
+	Decorationmap = make(map[int32]*Decoration)
+	for dec.More() {
+		var temp Decoration
+		err := dec.Decode(&temp)
+		if err != nil {
+			panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+		}
+		Decorations = append(Decorations, &temp)
+		Decorationmap[temp.Id] = &temp
+	}
+
+	LogInfo("Load Decoration Scheme Success!")
+}

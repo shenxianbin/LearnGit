@@ -1,0 +1,47 @@
+syntax="proto2";
+
+package cache;
+
+message FriendCache
+{
+	required int64 id = 1;
+	required int64 selfId = 2;
+	required int32 winTimes = 3;
+	required int32 loseTimes = 4;
+	required int64 sendExcitationTime = 5;
+	required int64 receiveExcitationTime = 6;
+	required int64 useExcitationTime = 7;
+	required FriendInfoCache friendInfo = 8;
+}
+
+message FriendInfoCache
+{
+	required int64 id = 1;
+	required int64 loginTime = 2;
+	required int32 level = 3;
+	required int32 leagueLevel = 4;
+	required int32 trophy = 5;
+	required int64 timestamp = 6;
+	required string nickname = 7;
+}
+
+message RequestCache
+{
+	required int64 id = 1;
+	required int64 selfId = 2;
+	required int64 timestamp = 3;
+	required FriendInfoCache friendInfo = 4;
+}
+
+message InviteeCache
+{
+	required int64 id = 1;
+	required int64 selfId = 2;
+	required int32 level = 3;
+}
+
+message ReceiveExcitationCache
+{
+	required int32 times = 1;
+	required int64 timestamp = 2;
+}

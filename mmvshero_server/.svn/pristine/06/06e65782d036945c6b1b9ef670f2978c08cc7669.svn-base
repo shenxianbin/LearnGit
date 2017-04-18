@@ -1,0 +1,219 @@
+package plunder
+
+import (
+	"common"
+	. "common/cache"
+	"common/protocol"
+	"fmt"
+	. "galaxy"
+
+	"github.com/golang/protobuf/proto"
+)
+
+const (
+	TEAM_LOG_LIMIT = 3
+	REPORT_LIMIT   = 10
+)
+
+const (
+	cache_plunder_report_autokey_t = "Role:%v:PlunderAutoKey"
+	cache_plunder_report_key_t     = "Role:%v:PlunderReport:%v"
+)
+
+func genPlunderReportKey(role_uid int64, report_id int64) string {
+	return fmt.Sprintf(cache_plunder_report_key_t, role_uid, report_id)
+}
+
+func genPlunderReportAutoKey(role_uid int64) string {
+	return fmt.Sprintf(cache_plunder_report_autokey_t, role_uid)
+}
+
+func NewPlunderReport(role_uid int64) (*PlunderReportCache, error) {
+	resp, err := GxService().Redis().Cmd("INCR", genPlunderReportAutoKey(role_uid))
+	if err != nil {
+		return nil, err
+	}
+
+	uid, _ := resp.Int64()
+	plunder_report := new(PlunderReportCache)
+	plunder_report.SetReportId(uid)
+
+	return plunder_report, nil
+}
+
+func SavePlunderReport(report *PlunderReportCache, time_out int64) (string, error) {
+	key := genPlunderReportKey(report.GetAttackRoleUid(), report.GetReportId())
+	buf, err := proto.Marshal(report)
+	if err != nil {
+		return key, err
+	}
+
+	_, err = GxService().Redis().Cmd("SETEX", key, time_out, buf)
+	if err != nil {
+		return key, err
+	}
+
+	return key, nil
+}
+
+func LoadPlunderReport(key string) (*PlunderReportCache, error) {
+	resp, err := GxService().Redis().Cmd("GET", key)
+	if err != nil {
+		return nil, err
+	}
+
+	cache := new(PlunderReportCache)
+	if buf, _ := resp.Bytes(); buf != nil {
+		err := proto.Unmarshal(buf, cache)
+		if err != nil {
+			return nil, err
+		}
+		return cache, nil
+	}
+
+	return nil, nil
+}
+
+func FillPlunderReport(report_cache *PlunderReportCache) *protocol.PlunderReport {
+	report_info := new(protocol.PlunderReport)
+	report_info.SetAttackRoleUid(report_cache.GetAttackRoleUid())
+	report_info.SetAttackRoleLv(report_cache.GetAttackRoleLv())
+	report_info.SetAttackRoleName(report_cache.GetAttackRoleName())
+	report_info.SetDefenceRoleUid(report_cache.GetDefenceRoleUid())
+	report_info.SetDefenceRoleLv(report_cache.GetDefenceRoleLv())
+	report_info.SetDefenceRoleName(report_cache.GetDefenceRoleName())
+	hero_infos := make([]*protocol.PlunderHero, 0)
+	for _, hero := range report_cache.GetHeros() {
+		hero_info := new(protocol.PlunderHero)
+		hero_info.SetUid(hero.GetUid())
+		hero_info.SetSchemeId(hero.GetSchemeId())
+		hero_info.SetLv(hero.GetLv())
+		hero_info.SetStage(hero.GetStage())
+		hero_info.SetRank(hero.GetRank())
+		hero_skill_infos := make([]*protocol.PlunderHeroSkill, 0)
+		for _, hero_skill := range hero_info.GetSkillList() {
+			hero_skill_info := new(protocol.PlunderHeroSkill)
+			hero_skill_info.SetSkillId(hero_skill.GetSkillId())
+			hero_skill_info.SetSkillLv(hero_skill.GetSkillLv())
+			hero_skill_infos = append(hero_skill_infos, hero_skill_info)
+		}
+		hero_info.SetSkillList(hero_skill_infos)
+		hero_info.SetProperties(hero.GetProperties())
+		hero_infos = append(hero_infos, hero_info)
+	}
+	report_info.SetHeros(hero_infos)
+	report_info.SetFightTime(report_cache.GetFightTime())
+	report_info.SetFightResult(report_cache.GetFightResult())
+	report_info.SetFightType(report_cache.GetFightType())
+	report_info.SetHasShield(report_cache.GetHasShield())
+	award_infos := make([]*protocol.PlunderAward, 0)
+	for _, award := range report_cache.GetPlunderAward() {
+		award_info := new(protocol.PlunderAward)
+		award_info.SetType(award.GetType())
+		award_info.SetCode(award.GetCode())
+		award_info.SetAmount(award.GetAmount())
+		award_infos = append(award_infos, award_info)
+	}
+	report_info.SetPlunderAward(award_infos)
+	report_info.SetIsRevenged(report_cache.GetIsRevenged())
+	report_info.SetRevengeCd(report_cache.GetRevengeCd())
+
+	return report_info
+}
+
+func (this *PlunderSys) PlunderAddLog(report_id string, start_time int64) {
+	log := new(PlunderLogCache)
+	log.SetReportId(report_id)
+	log.SetStartTime(start_time)
+
+	if len(this.PlunderCache.PlunderLogs) < REPORT_LIMIT {
+		this.PlunderCache.PlunderLogs = append(this.PlunderCache.PlunderLogs, log)
+	} else {
+		for i := 1; i < REPORT_LIMIT; i++ {
+			this.PlunderCache.PlunderLogs[i-1] = this.PlunderCache.PlunderLogs[i]
+		}
+		this.PlunderCache.PlunderLogs[REPORT_LIMIT-1] = log
+	}
+	this.Save()
+}
+
+func (this *PlunderSys) PlunderAddTeamLog(team_id int64, start_time int64, report_ids []string) {
+	teamlog := new(PlunderTeamLogCache)
+	teamlog.SetTeamId(team_id)
+	teamlog.SetStartTime(start_time)
+	teamlog.SetReportIds(report_ids)
+
+	if len(this.PlunderCache.PlunderTeamLogs) < TEAM_LOG_LIMIT {
+		this.PlunderCache.PlunderTeamLogs = append(this.PlunderCache.PlunderTeamLogs, teamlog)
+	} else {
+		for i := 1; i < TEAM_LOG_LIMIT; i++ {
+			this.PlunderCache.PlunderTeamLogs[i-1] = this.PlunderCache.PlunderTeamLogs[i]
+		}
+		this.PlunderCache.PlunderTeamLogs[TEAM_LOG_LIMIT-1] = teamlog
+	}
+	this.Save()
+}
+
+func (this *PlunderSys) PlunderGuardNowReport(pos int32) (common.RetCode, []*protocol.PlunderReport) {
+	team, has := this.team_list[pos]
+	if !has {
+		return common.RetCode_PlunderTeamNotExist, nil
+	}
+
+	//team日志过期
+
+	reports := make([]*protocol.PlunderReport, 0)
+	for _, report_id := range team.GetReportIds() {
+		report_cache, err := LoadPlunderReport(report_id)
+		if err != nil {
+			continue
+		}
+		report := FillPlunderReport(report_cache)
+		reports = append(reports, report)
+	}
+
+	return common.RetCode_Success, reports
+}
+
+func (this *PlunderSys) PlunderGuardBeforeReport() (common.RetCode, []*protocol.PlunderTeamLog) {
+	team_logs := make([]*protocol.PlunderTeamLog, 0)
+	for _, teamlog_cache := range this.PlunderCache.GetPlunderTeamLogs() {
+		//TODO
+		if teamlog_cache.GetStartTime() > 0 {
+			continue
+		}
+
+		team_log := new(protocol.PlunderTeamLog)
+		team_log.SetTeamId(teamlog_cache.GetTeamId())
+		reports := make([]*protocol.PlunderReport, 0)
+		for _, report_id := range teamlog_cache.GetReportIds() {
+			report_cache, err := LoadPlunderReport(report_id)
+			if err != nil {
+				continue
+			}
+			report := FillPlunderReport(report_cache)
+			reports = append(reports, report)
+		}
+		team_log.SetReports(reports)
+		team_logs = append(team_logs, team_log)
+	}
+	return common.RetCode_Success, team_logs
+}
+
+func (this *PlunderSys) PlunderReport() (common.RetCode, []*protocol.PlunderReport) {
+	reports := make([]*protocol.PlunderReport, 0)
+	for _, log := range this.PlunderCache.GetPlunderLogs() {
+		//TODO
+		if log.GetStartTime() > 0 {
+			continue
+		}
+
+		report_cache, err := LoadPlunderReport(log.GetReportId())
+		if err != nil {
+			continue
+		}
+		report := FillPlunderReport(report_cache)
+		reports = append(reports, report)
+	}
+	return common.RetCode_Success, reports
+}

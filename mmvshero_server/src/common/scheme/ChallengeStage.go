@@ -1,0 +1,52 @@
+package scheme
+
+import (
+	"encoding/json"
+	"fmt"
+	. "galaxy"
+	"os"
+)
+
+type ChallengeStage struct {
+	 Id 	 int32
+	 Type 	 int32
+	 Stage 	 int32
+	 StageHpPlus 	 int32
+	 StageAtkPlus 	 int32
+	 BattleType 	 string
+	 BattleParam 	 string
+	 Wave 	 int32
+	 Award 	 int32
+
+}
+
+var ChallengeStages []*ChallengeStage
+var ChallengeStagemap map[int32]*ChallengeStage
+
+func LoadChallengeStage(filepath string) {
+    fileName := "ChallengeStage.json"
+	file, err := os.Open(fmt.Sprintf("%s/%s", filepath, fileName))
+	if err != nil {
+		panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+	}
+	defer file.Close()
+
+	dec := json.NewDecoder(file)
+	_, err = dec.Token()
+	if err != nil {
+		panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+	}
+
+	ChallengeStagemap = make(map[int32]*ChallengeStage)
+	for dec.More() {
+		var temp ChallengeStage
+		err := dec.Decode(&temp)
+		if err != nil {
+			panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+		}
+		ChallengeStages = append(ChallengeStages, &temp)
+		ChallengeStagemap[temp.Id] = &temp
+	}
+
+	LogInfo("Load ChallengeStage Scheme Success!")
+}

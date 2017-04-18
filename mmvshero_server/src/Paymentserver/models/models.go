@@ -1,0 +1,189 @@
+package models
+
+import (
+	"encoding/json"
+	"fmt"
+	"github.com/astaxie/beego/config"
+	"github.com/astaxie/beego/logs"
+	"github.com/astaxie/beego/orm"
+	_ "github.com/go-sql-driver/mysql"
+	"io/ioutil"
+	"math/rand"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+)
+
+type serverConfig struct {
+	ServerId   string `json:"serverId"`
+	ServerName string `json:"serverName"`
+	ServerHost string `json:"serverHost"`
+}
+
+var ServerConfig map[string]serverConfig
+
+type ormConfig struct {
+	AliasName    string
+	DriverName   string
+	DataSource   string
+	MaxIdleConns int
+	MaxOpenConns int
+}
+
+var OrmConfig *ormConfig
+
+type Goods struct {
+	Id          int     `orm:"column(id)"`
+	Name        string  `orm:"column(name)"`
+	Description string  `orm:"column(description)"`
+	Price       float32 `orm:"column(price)"`
+	GoodsURL    string  `orm:"column(goods_url)"`
+}
+
+type Orders struct {
+	Id         int     `orm:"column(id)"`
+	OrderId    string  `orm:"column(order_id)"`
+	PlayerId   string  `orm:"column(player_id)"`
+	GoodsId    int     `orm:"column(goods_id)"`
+	State      int     `orm:"column(state)"`
+	PayChannel string  `orm:"column(pay_channel)"`
+	PayOrderId string  `orm:"column(pay_order_id)"`
+	TotalPrice float32 `orm:"column(total_price)"`
+	ZoneId     string  `orm:"column(zone_id)"`
+	Token      string  `orm:"column(token)"`
+}
+
+func intOrm() {
+	configfilepath := filepath.Join("conf", "orm.conf")
+	iniconf, err := config.NewConfig("ini", configfilepath)
+	if err != nil {
+		logs.Critical(err)
+	}
+	OrmConfig = new(ormConfig)
+	OrmConfig.AliasName = iniconf.String("aliasName")
+	OrmConfig.DriverName = iniconf.String("driverName")
+	OrmConfig.DataSource = iniconf.String("dataSource")
+	maxIdleConn, err := iniconf.Int("maxIdleConns")
+	if err != nil {
+		logs.Error(err)
+		OrmConfig.MaxIdleConns = 1
+	} else {
+		OrmConfig.MaxIdleConns = maxIdleConn
+	}
+	maxOpenConn, err := iniconf.Int("maxOpenConns")
+	if err != nil {
+		logs.Error(err)
+		OrmConfig.MaxOpenConns = 1
+	} else {
+		OrmConfig.MaxOpenConns = maxOpenConn
+	}
+}
+
+func LoadConfig() {
+	logConfig()
+	initConfig()
+	intOrm()
+	orm.RegisterDataBase(OrmConfig.AliasName, OrmConfig.DriverName, OrmConfig.DataSource, OrmConfig.MaxIdleConns, OrmConfig.MaxOpenConns)
+	orm.RegisterModel(new(Goods), new(Orders))
+}
+
+func logConfig() {
+	//异步日志
+	logs.Async()
+	root, err := os.Getwd()
+	if err != nil {
+		fmt.Println(err)
+	}
+	sep := string(filepath.Separator)
+	configFile := root + sep + "conf" + sep + "log.json"
+	if !Exist(configFile) {
+		panic(fmt.Sprintf("%s not exists", configFile))
+	}
+	data, err := ioutil.ReadFile(configFile)
+	logs.SetLogger(logs.AdapterConsole)
+	logs.SetLogger(logs.AdapterMultiFile, string(data))
+	logs.EnableFuncCallDepth(true)
+}
+
+func MakeOrderId() string {
+	now := time.Now()
+	nowStr := now.Format("2006-01-02 15:04:05")
+	nowStr = strings.Replace(nowStr, "-", "", -1)
+	nowStr = strings.Replace(nowStr, ":", "", -1)
+	nowStr = strings.Replace(nowStr, " ", "", -1)
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	randNum := r.Intn(1000000)
+	return nowStr + strconv.FormatInt(int64(randNum), 10)
+}
+
+func GetGoods(itemId int) *Goods {
+	o := orm.NewOrm()
+	goods := Goods{Id: itemId}
+	err := o.Read(&goods)
+	if err == nil {
+		return &goods
+	} else {
+		logs.Debug(err)
+		return nil
+	}
+}
+func SaveOrders(order *Orders) (bool, int64) {
+	o := orm.NewOrm()
+	id, err := o.Insert(order)
+	if err == nil {
+		return true, id
+	} else {
+		logs.Debug(err)
+		return false, -1
+	}
+}
+
+func GetOrders(orderId string, payOrderId string) *Orders {
+	o := orm.NewOrm()
+	orders := Orders{OrderId: orderId, PayOrderId: payOrderId}
+	//Read 默认通过查询主键赋值，可以使用指定的字段进行查询(例如"OrderId", "PayOrderId")
+	err := o.Read(&orders, "OrderId", "PayOrderId")
+	if err == nil {
+		return &orders
+	} else {
+		logs.Debug(err)
+		return nil
+	}
+}
+func UpdateOrders(order *Orders) {
+	o := orm.NewOrm()
+	if num, err := o.Update(order); err == nil {
+		logs.Debug("UpdateOrders affect row ", num)
+	} else {
+		logs.Error(err)
+	}
+}
+
+func initConfig() {
+	ServerConfig = make(map[string]serverConfig)
+	var serverConfigs []serverConfig
+	root, err := os.Getwd()
+	sep := string(filepath.Separator)
+	configFile := root + sep + "conf" + sep + "server.json"
+	if !Exist(configFile) {
+		fmt.Println(configFile, " is not exists")
+	}
+	data, err := ioutil.ReadFile(configFile)
+	if err != nil {
+		fmt.Println(err)
+	}
+	err = json.Unmarshal(data, &serverConfigs)
+	if err != nil {
+		fmt.Println(err)
+	}
+	for _, v := range serverConfigs {
+		ServerConfig[v.ServerId] = v
+		logs.Debug(v)
+	}
+}
+func Exist(filename string) bool {
+	_, err := os.Stat(filename)
+	return err == nil || os.IsExist(err)
+}

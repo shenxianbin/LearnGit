@@ -1,0 +1,15 @@
+syntax="proto2";
+
+package cache;
+
+message MallInfo
+{
+	required int32 limit_count = 1;
+	required int64 cd = 2;
+	required int32 con_args = 3;
+}
+
+message MallCache
+{
+	map<int32,MallInfo> mall_list = 1;
+}

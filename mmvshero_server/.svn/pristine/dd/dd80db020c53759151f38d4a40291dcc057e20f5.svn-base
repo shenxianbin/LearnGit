@@ -1,0 +1,218 @@
+package tcp
+
+import (
+	"fmt"
+	. "galaxy/logs"
+	. "galaxy/nets/packet"
+	"galaxy/utils"
+	"net"
+	"sync"
+)
+
+type Listener struct {
+	listenAddr *net.TCPAddr
+	listener   *net.TCPListener
+
+	name      string
+	isEncrypt bool
+
+	maxConn       int
+	recvBufSize   int
+	sendBufSize   int
+	sendChanSize  int
+	heartInterval int64
+
+	connectedSession map[int64]*Session
+	sessionPool      chan *Session
+	exitChan         chan bool
+	mutex            sync.Mutex
+
+	genSidCb      func() int64
+	loseLogicCb   func(sid int64)
+	sessionRecvCb func(s *Session, packet *GxPacket)
+
+	waitGroup sync.WaitGroup
+	runStatus bool
+	runMutex  sync.Mutex
+}
+
+func NewListener(name string, isEncrypt bool,
+	maxConn int, recvBufSize int, sendBufSize int,
+	sendChanSize int, heartInterval int64,
+	genSidCb func() int64,
+	sessionRecvCb func(s *Session, packet *GxPacket)) *Listener {
+
+	l := new(Listener)
+	l.name = name
+	l.isEncrypt = isEncrypt
+	l.maxConn = maxConn
+	l.recvBufSize = recvBufSize
+	l.sendBufSize = sendBufSize
+	l.sendChanSize = sendChanSize
+	l.heartInterval = heartInterval
+
+	l.genSidCb = genSidCb
+	if l.genSidCb == nil {
+		panic(fmt.Sprintln("NewListener[", name, "] genSidCb is nil"))
+	}
+
+	l.sessionRecvCb = sessionRecvCb
+	if l.sessionRecvCb == nil {
+		panic(fmt.Sprintln("NewListener[", name, "] sessionRecvCb is nil"))
+	}
+
+	return l
+}
+
+func (this *Listener) RegisterLoseLogicCallBack(f func(sid int64)) {
+	this.loseLogicCb = f
+}
+
+func (this *Listener) initSessionPool() {
+	this.sessionPool = make(chan *Session, this.maxConn)
+	for i := 0; i < this.maxConn; i++ {
+		sid := this.genSidCb()
+		session := NewSession(sid, this.isEncrypt, false, this.heartInterval,
+			func(s *Session) {
+				s.Wait()
+				this.delSession(s.Sid())
+				if this.loseLogicCb != nil {
+					this.loseLogicCb(s.Sid()) //回调函数　关联上层逻辑
+				}
+				this.sessionPool <- s
+			},
+			this.sessionRecvCb)
+		this.sessionPool <- session
+	}
+}
+
+func (this *Listener) Listening(host string, port int) (err error) {
+	this.runMutex.Lock()
+	defer this.runMutex.Unlock()
+	if !this.runStatus {
+		ip := net.ParseIP(host)
+		this.listenAddr = &net.TCPAddr{IP: ip, Port: port}
+		this.listener, err = net.ListenTCP("tcp", this.listenAddr)
+		if err != nil {
+			this.listener.Close()
+			GxLogError(err.Error())
+			return
+		}
+		this.resetSession()
+		this.initSessionPool()
+
+		GxLogDebug("Listener [", this.name, "] IP: ", this.listener.Addr(), " create success, now begin to Listen......")
+		this.waitGroup.Add(1)
+		go func() {
+			defer utils.Stack()
+			GxLogDebug("Listener [", this.name, "] IP: ", this.listener.Addr(), " begin to Listen......")
+		Exit:
+			for {
+				select {
+				case <-this.exitChan:
+					break Exit
+				case session := <-this.sessionPool:
+					GxLogDebug("Listener [", this.name, "] IP: ", this.listener.Addr(), " accepting")
+					conn, err := this.listener.AcceptTCP()
+					if err == nil {
+						GxLogDebug("Listener [", this.name, "] IP: ", this.listener.Addr(), " accept conn IP: ", conn.RemoteAddr())
+						session.Start(conn, this.recvBufSize, this.sendBufSize, this.sendChanSize)
+						this.addSession(session)
+					} else {
+						GxLogDebug("Listener [", this.name, "] IP: ", this.listener.Addr(), " accept failed")
+					}
+				}
+			}
+			GxLogDebug("Listener [", this.name, "] IP: ", this.listener.Addr(), " end to Listen......")
+			this.waitGroup.Done()
+		}()
+
+		this.runStatus = true
+	}
+
+	return
+}
+
+func (this *Listener) SendPacket(sid int64, p *GxPacket) {
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+	if s, has := this.connectedSession[sid]; has {
+		s.SendPacket(p)
+	}
+}
+
+func (this *Listener) Remove(sid int64) {
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+
+	session, has := this.connectedSession[sid]
+	if has && session != nil {
+		session.Stop()
+		delete(this.connectedSession, sid)
+		this.sessionPool <- session
+	}
+}
+
+func (this *Listener) RemoveAll() {
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+	GxLogDebug("RemoveAll Start")
+	for _, session := range this.connectedSession {
+		if session != nil {
+			session.Stop()
+			session.Wait()
+			this.sessionPool <- session
+			GxLogDebug("RemoveAll Session : ", session.Sid(), " Success")
+		}
+	}
+	this.connectedSession = make(map[int64]*Session)
+	GxLogDebug("RemoveAll End")
+}
+
+func (this *Listener) Stop() {
+	this.runMutex.Lock()
+	defer this.runMutex.Unlock()
+	if this.runStatus {
+		this.mutex.Lock()
+		defer this.mutex.Unlock()
+		for _, session := range this.connectedSession {
+			if session != nil {
+				session.Stop()
+				session.Wait()
+			}
+		}
+		close(this.exitChan)
+		this.listener.Close()
+		this.waitGroup.Wait()
+		this.runStatus = false
+	}
+}
+
+func (this *Listener) Wait() {
+	this.waitGroup.Wait()
+}
+
+func (this *Listener) LocalAddr() net.Addr {
+	return this.listenAddr
+}
+
+func (this *Listener) addSession(session *Session) {
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+	this.connectedSession[session.sid] = session
+	GxLogDebug("Listener [", this.name, "] addSession")
+}
+
+func (this *Listener) delSession(sid int64) {
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+	delete(this.connectedSession, sid)
+	GxLogDebug("Listener [", this.name, "] DelSession :", sid)
+}
+
+func (this *Listener) resetSession() {
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+	this.connectedSession = make(map[int64]*Session)
+	GxLogDebug("Listener [", this.name, "] ResetSession !")
+}

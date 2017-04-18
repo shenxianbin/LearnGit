@@ -1,0 +1,220 @@
+package soldier
+
+import (
+	"Gameserver/global"
+	"Gameserver/logic"
+	"common/protocol"
+	"galaxy"
+
+	"github.com/golang/protobuf/proto"
+)
+
+func InitSoldierModule() {
+	initProtocol()
+}
+
+func initProtocol() {
+	global.RegisterMsg(int32(protocol.MsgCode_SoldierAllReq), func(sid int64, msg []byte) {
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		role.SoldierSendAll()
+	})
+
+	global.RegisterMsg(int32(protocol.MsgCode_SoldierUpgradeReq), func(sid int64, msg []byte) {
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		req := &protocol.MsgSoldierUpgradeReq{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			galaxy.LogError(err)
+			return
+		}
+
+		galaxy.LogDebug("req.GetSoldierId(), req.GetHeroId(), req.GetUsedCoin():", req.GetSoldierId(), req.GetHeroId(), req.GetUsedCoin())
+		retCode, timestamp, startTimestamp := role.SoldierUpgrade(req.GetSoldierId(), req.GetHeroId(), req.GetUsedCoin())
+
+		ret := &protocol.MsgSoldierUpgradeRet{}
+		ret.SetRetCode(int32(retCode))
+		ret.SetTimestamp(timestamp)
+		ret.SetEvoSpeedTimeStamp(startTimestamp)
+		buf, err := proto.Marshal(ret)
+		if err != nil {
+			galaxy.LogError(err)
+			return
+		}
+
+		global.SendMsg(int32(protocol.MsgCode_SoldierUpgradeRet), sid, buf)
+	})
+
+	global.RegisterMsg(int32(protocol.MsgCode_SoldierSkillLvReq), func(sid int64, msg []byte) {
+		galaxy.LogDebug("enter SoldierSkillLvReq :")
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		req := &protocol.MsgSoldierSkillLvReq{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			galaxy.LogError(err)
+			return
+		}
+		retCode := 0
+		if !role.SoldierSkillLevelUp(req.GetSoldierId(), req.GetSkillId()) {
+			retCode = 1
+		}
+		ret := &protocol.MsgSoldierSkillLvRet{}
+		ret.SetRetCode(int32(retCode))
+
+		buf, err := proto.Marshal(ret)
+		if err != nil {
+			galaxy.LogError(err)
+			return
+		}
+		galaxy.LogDebug("end SoldierSkillLvReq :")
+		global.SendMsg(int32(protocol.MsgCode_SoldierSkillLvRet), sid, buf)
+	})
+
+	global.RegisterMsg(int32(protocol.MsgCode_SoldierRemoveUpgradeTimeReq), func(sid int64, msg []byte) {
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		req := &protocol.MsgSoldierRemoveUpgradeTimeReq{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			galaxy.LogError(err)
+			return
+		}
+		retCode := 0
+		if !role.SoldierRemoveUpgradeTime(req.GetSoldierId(), false) {
+			retCode = 1
+		}
+		ret := &protocol.MsgSoldierRemoveUpgradeTimeRet{}
+		ret.SetRetCode(int32(retCode))
+
+		buf, err := proto.Marshal(ret)
+		if err != nil {
+			galaxy.LogError(err)
+			return
+		}
+
+		global.SendMsg(int32(protocol.MsgCode_SoldierRemoveUpgradeTimeRet), sid, buf)
+	})
+
+	global.RegisterMsg(int32(protocol.MsgCode_SoldierCutDownUpgradeTimeReq), func(sid int64, msg []byte) {
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		req := &protocol.MsgSoldierCutDownUpgradeTimeReq{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			galaxy.LogError(err)
+			return
+		}
+		retCode, evoTime := role.SoldierCutDownUpgradeTime(req.GetSoldierId())
+
+		ret := &protocol.MsgSoldierCutDownUpgradeTimeRet{}
+		ret.SetRetCode(int32(retCode))
+		ret.SetEvoSpeedTimeStamp(evoTime)
+
+		buf, err := proto.Marshal(ret)
+		if err != nil {
+			galaxy.LogError(err)
+			return
+		}
+
+		global.SendMsg(int32(protocol.MsgCode_SoldierCutDownUpgradeTimeRet), sid, buf)
+	})
+
+	global.RegisterMsg(int32(protocol.MsgCode_SoldierFinishUpgradeReq), func(sid int64, msg []byte) {
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		req := &protocol.MsgSoldierFinishUpgradeReq{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			galaxy.LogError(err)
+			return
+		}
+		retCode := 0
+		flag, stage := role.SoldierFinishUpgrade(req.GetSoldierId())
+		if !flag {
+			retCode = 1
+		}
+		ret := &protocol.MsgSoldierFinishUpgradeRet{}
+		ret.SetRetCode(int32(retCode))
+		ret.SetSoldierId(req.GetSoldierId())
+		ret.SetStage(stage)
+
+		buf, err := proto.Marshal(ret)
+		if err != nil {
+			galaxy.LogError(err)
+			return
+		}
+
+		global.SendMsg(int32(protocol.MsgCode_SoldierFinishUpgradeRet), sid, buf)
+	})
+
+	global.RegisterMsg(int32(protocol.MsgCode_SoldierAllEventsReq), func(sid int64, msg []byte) {
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		req := &protocol.MsgSoldierAllEventsReq{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			galaxy.LogError(err)
+			return
+		}
+
+		ret := role.SoldierAllEvents()
+		buf, err := proto.Marshal(ret)
+		if err != nil {
+			galaxy.LogError(err)
+			return
+		}
+
+		global.SendMsg(int32(protocol.MsgCode_SoldierAllEventsRet), sid, buf)
+	})
+
+	global.RegisterMsg(int32(protocol.MsgCode_SoldierEventDealWithReq), func(sid int64, msg []byte) {
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		req := &protocol.MsgSoldierEventDealWithReq{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			galaxy.LogError(err)
+			return
+		}
+		retCode := 0
+		flag := role.SoldierEventDealWith(req.GetEventType(), req.GetEventId())
+		if !flag {
+			retCode = 1
+		}
+		ret := &protocol.MsgSoldierEventDealWithRet{}
+		ret.SetRetCode(int32(retCode))
+		buf, err := proto.Marshal(ret)
+		if err != nil {
+			galaxy.LogError(err)
+			return
+		}
+
+		global.SendMsg(int32(protocol.MsgCode_SoldierEventDealWithRet), sid, buf)
+	})
+}

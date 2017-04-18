@@ -1,0 +1,139 @@
+syntax="proto2";
+
+package common;
+
+enum RetCode {
+
+//Common
+	Success = 0;//成功
+	Failed = 1;//失败
+	SchemeData_Error = 2;//配置档错误
+	CD = 3; //冷却中
+	Redis_Error = 4;//Redis异常
+	Proto_Error = 5;//Proto错误
+	TimeOut_Error = 6;//超时异常
+
+//Role 1
+	RoleNotEnoughGold = 1000;//金币不足
+	RoleNotEnoughSoul = 1001;//魔魂不够
+	RoleNotEnoughStone = 1002;//符石不够
+	RoleNotEnoughOrder = 1003;//体力不够
+
+//King 2
+	KingLvUpLimit = 2001;//魔王等级受限
+	KingSkillIdError = 2002;//魔王技能ID错误
+	KingSkillLvLimit = 2003;//魔王技能等级受限
+
+//Hero 3
+	HeroExpArgsError = 3001;//经验参数异常
+	HeroLvMax = 3002;//等级达到最大
+	HeroLvLimitByStage = 3003;//等级受制于等阶
+	HeroLvLimitByRole = 3004;//等级受制于玩家等级
+	HeroSkillIdError = 3005;//魔使技能Id错误
+	HeroSkillLvLimit = 3006;//魔使技能达到最大或受限于魔使等级
+	HeroRankMax = 3007;//品阶达到最大
+	HeroUidError = 3008;//魔使Uid错误
+	HeroMixArgsError = 309;//魔使合成参数错误
+	HeroMixNeedNotSelf = 3010;//魔使合成不能吞自己
+	HeroNotFound = 3011;//没有该魔使
+	HeroOnMap = 3012;//魔使在地图上
+	HeroMixNeedUnable= 3013;//魔使合成条件不满足
+
+//Soldier 4
+	SoldierLvUpError = 4001;//魔物升级错误
+	SoldierStageUpLvUnable = 4002;//魔物升阶所需等级不足
+	SoldierStageUpMax = 4003;//魔物升阶已达到最大
+	SoldierIdError = 4004;//魔物Id异常
+
+//Building 5
+	BuildingUidError = 5001;//建筑Uid错误
+	BuildingLvMax = 5002;//等级达到上限
+	BuildingLvLimit = 5003;//等级受到限制
+
+//Decoration 6
+	DecorationNumMax = 6001;//装饰品堆叠数量最大
+
+//Map 7
+	MapRefreshInfoEmpty = 7001;//请求保存的地图数据为空
+	MapRefreshInfoLenError = 7002;//请求保存地图长度错误
+	MapRefreshPointError = 7003;//请求保存据点错误
+	MapRefreshEntranceRepeat = 7004;//入口重复
+	MapRefreshHeroIdError = 7005;//魔使错误
+	MapRefreshBuildingIdError = 7006;//建筑错误
+	MapRefreshKingError = 7007;//魔王错误
+	MapDigLimit = 7008;//可挖掘数限制
+	MapRefreshDecorationError = 7009;//装饰物错误
+	MapRefreshHeroSizeError = 7010;//魔使数量错误
+	MapRefreshSoldierError = 7011;//魔物错误
+	MapRefreshPopError = 7012;//人口异常
+	MapRefreshBuildingSizeError = 7013;//建筑数量错误
+	MapPointUnLocked = 7014;//据点已解锁
+	MapPointUnLockIdError = 7015;//据点Id错误
+	MapPointUnLockLvNotEnough = 7016;//解锁等级不够
+
+//Stage 8
+	StageNotFoundError = 8001;//关卡没找到
+
+//Sign 10
+	SignAlreadyToday = 10001;//今日已签到
+
+//Mission 11
+	MissionTargetLvUnable = 11001;//目标不符合条件
+	MissionIdError = 11002;//任务Id错误
+	MissionMustVip = 11003;//任务必须是VIP才能完成
+
+//Achievement 12
+	AchievementIdError = 12001;//成就Id异常
+	AchievementFinished = 12002;//成就已完成
+	AchievementUnableFinish = 12003;//成就未达到完成条件
+
+//Chat 13
+	ChatWordsTooLong = 13001; //说话内容太长
+	ChatPrivateUidError = 13002;//私聊指定Uid错误
+
+//Drop 14
+
+//Item 15
+	ItemNumArgsError = 15001;//道具添加数量错误
+	ItemUidError = 15002;//道具Id错误
+	ItemNotEnough = 15003;//道具数量不够
+	ItemUseArgsLenNull = 15004;//道具使用参数长度为空
+	ItemUseArgsError = 15005;//道具使用参数长度错误
+	ItemUseHeroIdError = 15006;//道具给定魔使Uid错误
+	ItemUseSoldierIdError = 15007;//道具给定魔物Id错误
+	ItemUseageTypeError = 15008;//道具使用用途错误
+
+//Friend 16
+	FriendSearchNotFound = 16001;//没找到
+	FriendNotFound = 16002;//没找到
+	FriendRequestHasExist = 16003;//好友请求已经存在
+	FriendHasBeenGot = 16004;//已经是好友
+	FriendHasReachedTheMaximumNumberOfFriends = 16005;//达到最大好友数量，自己或者对方
+	FriendRequestNotFound = 16006;//好友请求没找到
+	FriendInviteIdHasExist = 16007;//invite id 已经存在
+	FriendInviteIdError = 16008;//invite id 错误
+//Login 17
+	LoginUsernameIsEmpty = 17001;
+	LoginPasswordIsEmpty = 17002;
+	LoginNotFound = 17003;
+	LoginPasswordIsNotMatch = 17004;
+	LoginUsernameIsExist = 17005;
+	LoginCreateAccountFail = 17006;
+	LoginDb = 17007;
+	
+//Mall 18
+	MallArgsError = 18001;
+	MallNotSpaceBlood = 18002;
+	MallNotSpaceSoul = 18003;
+	
+//Plunder 19
+	PlunderPosNotEmpty = 19001; //该位置已有队伍
+	PlunderHeroEmpty = 19002;//未选择队伍魔使
+	PlunderTeamUnLock = 19003;//该队列未解锁
+	PlunderTeamHeroLong = 19004;//魔使数量超过该队列长度
+	PlunderTeamPropertiesError = 19005;//非法特性
+	PlunderTeamNotExist = 19006;//该队伍不存在
+	PlunderTeamNotFinish = 19007;//该队伍未完成押送任务
+	PlunderTeamFinish = 19008;//该队伍已完成押送任务
+	PlunderTeamSheildAlready = 19009;//该队伍已有护盾
+}

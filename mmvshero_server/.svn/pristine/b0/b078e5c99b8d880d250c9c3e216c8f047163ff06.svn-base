@@ -1,0 +1,10 @@
+syntax="proto2";
+
+package cache;
+
+message FbCache
+{
+	required int32	schemeId 	  	= 1 ;//scheme id
+	required int64	timestamp  		= 2 ;       
+	map<int32,int32>attackedTimes 	= 3 ;
+}

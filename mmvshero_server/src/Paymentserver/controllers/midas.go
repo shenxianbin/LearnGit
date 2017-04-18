@@ -1,0 +1,392 @@
+package controllers
+
+import (
+	"Paymentserver/models"
+	"bytes"
+	"crypto/md5"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"github.com/astaxie/beego"
+	"github.com/astaxie/beego/logs"
+	"io/ioutil"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+)
+
+type MidasResponse struct {
+	Ret       int    `json:"ret"`
+	Token     string `json:"token"`
+	URLParams string `json:"url_params"`
+	ErrorCode string `json:"err_code"`
+	Msg       string `json:"msg"`
+	Attach    string `json:"attach"`
+}
+
+type GameServerResponse struct {
+	//0 表示成功处理，-1表示处理失败
+	Ret int    `json:"ret"`
+	Msg string `json:"msg"`
+}
+
+type MidasController struct {
+	beego.Controller
+}
+
+func (this *MidasController) Get() {
+	this.Data["Website"] = "beego.me"
+	this.Data["Email"] = "yangdamin1985@gmail.com"
+	this.TplName = "index.tpl"
+	logs.Debug("level test")
+
+}
+
+func (this *MidasController) CreateOrder() {
+	response := make(map[string]interface{})
+	goodsId := this.GetString("goods_id")
+	if goodsId == "" {
+		response["ret"] = -1
+		response["msg"] = "goods_id can not be empty"
+		this.Data["json"] = response
+		this.ServeJSON()
+		return
+	}
+	playerId := this.GetString("player_id")
+	if playerId == "" {
+		response["ret"] = -1
+		response["msg"] = "player_id can not be empty"
+		this.Data["json"] = response
+		this.ServeJSON()
+		return
+	}
+	openId := this.GetString("open_id")
+	if openId == "" {
+		response["ret"] = -1
+		response["msg"] = "open_id can not be empty"
+		this.Data["json"] = response
+		this.ServeJSON()
+		return
+	}
+	openKey := this.GetString("open_key")
+	if openKey == "" {
+		response["ret"] = -1
+		response["msg"] = "open_key can not be empty"
+		this.Data["json"] = response
+		this.ServeJSON()
+		return
+	}
+	pf := this.GetString("pf")
+	if pf == "" {
+		response["ret"] = -1
+		response["msg"] = "pf can not be empty"
+		this.Data["json"] = response
+		this.ServeJSON()
+		return
+	}
+	pfKey := this.GetString("pf_key")
+	if pfKey == "" {
+		response["ret"] = -1
+		response["msg"] = "pf_key can not be empty"
+		this.Data["json"] = response
+		this.ServeJSON()
+		return
+	}
+	sign := this.GetString("sign")
+	if sign == "" {
+		response["ret"] = -1
+		response["msg"] = "sign can not be empty"
+		this.Data["json"] = response
+		this.ServeJSON()
+		return
+	}
+	var buf bytes.Buffer
+	buf.WriteString(playerId)
+	buf.WriteString(goodsId)
+	buf.WriteString(models.MidasConfig.GameKey)
+	h := md5.New()
+	h.Write(buf.Bytes())
+	cipherStr := h.Sum(nil)
+	if !strings.EqualFold(hex.EncodeToString(cipherStr), sign) {
+		response["ret"] = -1
+		response["msg"] = "sign error"
+		this.Data["json"] = response
+		this.ServeJSON()
+		return
+	}
+	payChannel := this.GetString("pay_channel")
+	if payChannel == "" {
+		response["ret"] = -1
+		response["msg"] = "pay_channel can not be empty"
+		this.Data["json"] = response
+		this.ServeJSON()
+		return
+	}
+	zoneId := this.GetString("zone_id")
+	if zoneId == "" {
+		response["ret"] = -1
+		response["msg"] = "zone_id can not be empty"
+		this.Data["json"] = response
+		this.ServeJSON()
+		return
+	}
+	payToken := this.GetString("pay_token")
+	Id, err := strconv.ParseInt(goodsId, 32, 10)
+	if err != nil {
+		logs.Error(err)
+		response["ret"] = -1
+		response["msg"] = err.Error()
+		this.Data["json"] = response
+		this.ServeJSON()
+		return
+	}
+	sessionId := this.GetString("session_id")
+	if len(sessionId) == 0 {
+		response["ret"] = -1
+		response["msg"] = "session_id can not be empty"
+		this.Data["json"] = response
+		this.ServeJSON()
+		return
+	}
+	sessionType := this.GetString("session_type")
+	if len(sessionType) == 0 {
+		response["ret"] = -1
+		response["msg"] = "session_type can not be empty"
+		this.Data["json"] = response
+		this.ServeJSON()
+		return
+	}
+	goods := models.GetGoods(int(Id))
+	if goods == nil {
+		response["ret"] = -1
+		response["msg"] = "can not find goods for goods_id"
+		this.Data["json"] = response
+		this.ServeJSON()
+		return
+	}
+	num := 1
+	appmode := "1"
+	orderId := models.MakeOrderId()
+	params := url.Values{}
+	params.Add("openid", openId)
+	params.Add("openkey", openKey)
+	params.Add("pay_token", payToken)
+	params.Add("appid", models.MidasConfig.AppId)
+	params.Add("ts", strconv.FormatInt(time.Now().Unix(), 10))
+	params.Add("payitem", fmt.Sprintf("%s*%.2f*%d", goodsId, goods.Price, num))
+	params.Add("goodsmeta", fmt.Sprintf("%s*%s", goods.Name, goods.Description))
+	params.Add("goodsurl", goods.GoodsURL)
+	params.Add("pf", pf)
+	params.Add("pfkey", pfKey)
+	params.Add("zoneid", zoneId)
+	params.Add("amt", fmt.Sprintf("%.2f", goods.Price))
+	params.Add("max_num", fmt.Sprintf("%d", num))
+	params.Add("appmode", appmode)
+	params.Add("app_metadata", orderId)
+	params.Add("userip", this.getClientIp())
+	params.Add("format", models.MidasConfig.Format)
+	urlpath := this.buildURL(params)
+	logs.Debug("urlpath=", urlpath)
+	cookieFormat := "session_id=%s; session_type=%s; org_loc=/mpay/buy_goods_m"
+	cookieStr := fmt.Sprintf(cookieFormat, sessionId, sessionType)
+	logs.Debug("cookieStr=", cookieStr)
+	body, err := this.makeRequest(urlpath, cookieStr)
+	if err != nil {
+		logs.Error(err)
+		response["ret"] = -1
+		response["msg"] = err.Error()
+		this.Data["json"] = response
+		this.ServeJSON()
+		return
+	} else {
+		logs.Debug("respose:", string(body))
+		var result MidasResponse
+		err = json.Unmarshal(body, &result)
+		if err != nil {
+			logs.Error(err)
+			response["ret"] = -1
+			response["msg"] = err.Error()
+			this.Data["json"] = response
+			this.ServeJSON()
+			return
+		} else {
+			//正确获得支付信息
+			if result.Ret == 0 {
+				//保存订单
+				var object models.Orders
+				object.PlayerId = playerId
+				object.OrderId = orderId
+				mapId, err := strconv.ParseInt(goodsId, 10, 32)
+				if err != nil {
+					logs.Error(err)
+					response["ret"] = -1
+					response["msg"] = err.Error()
+					this.Data["json"] = response
+					this.ServeJSON()
+					return
+				}
+				object.GoodsId = int(mapId)
+				object.State = 0
+				object.PayChannel = payChannel
+				object.PayOrderId = result.Token
+				object.TotalPrice = goods.Price
+				object.ZoneId = zoneId
+				status, _ := models.SaveOrders(&object)
+				if status {
+					response["ret"] = result.Ret
+					response["goodsTokenUrl"] = result.URLParams
+					this.Data["json"] = response
+					this.ServeJSON()
+				} else {
+					response["ret"] = -1
+					response["msg"] = "save order error"
+					this.Data["json"] = response
+					this.ServeJSON()
+				}
+			} else {
+				response["ret"] = result.Ret
+				response["msg"] = result.Msg
+				this.Data["json"] = response
+				this.ServeJSON()
+			}
+		}
+	}
+}
+
+//获取客户端ip地址
+func (this *MidasController) getClientIp() string {
+	ip := this.Ctx.Request.Header.Get("Remote_addr")
+	if ip == "" {
+		ip = this.Ctx.Request.RemoteAddr
+	}
+	return ip
+}
+
+//构建请求URL
+func (this *MidasController) buildURL(params url.Values) string {
+	secret := models.MidasConfig.AppKey + "&"
+	scriptName := "/mpay/buy_goods_m"
+	method := "get"
+	sig := models.MakeSign(method, scriptName, params, secret)
+	params.Add("sig", sig)
+	var urlBuf bytes.Buffer
+	urlBuf.WriteString(models.MidasConfig.Protocol)
+	urlBuf.WriteString("://")
+	if models.MidasConfig.IsSandbox {
+		urlBuf.WriteString(models.MidasConfig.SandboxServerName)
+	} else {
+		urlBuf.WriteString(models.MidasConfig.ProductServerName)
+	}
+	urlBuf.WriteString(scriptName)
+	urlBuf.WriteString("?")
+	urlBuf.WriteString(params.Encode())
+	urlpath := urlBuf.String()
+	return urlpath
+}
+
+//执行http请求
+func (this *MidasController) makeRequest(urlpath string, sessionCookie string) ([]byte, error) {
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", urlpath, nil)
+	if err != nil {
+		logs.Error(err)
+		response := make(map[string]interface{})
+		response["ret"] = -1
+		response["msg"] = err.Error()
+		this.Data["json"] = response
+		this.ServeJSON()
+		return make([]byte, 0), err
+	}
+	req.Header.Set("Cookie", sessionCookie)
+	request, err := client.Do(req)
+	defer request.Body.Close()
+	body, err := ioutil.ReadAll(request.Body)
+	return body, err
+}
+
+//处理支付通知
+func (this *MidasController) MidasNotify() {
+	//必须执行该步骤
+	this.Ctx.Request.ParseForm()
+	logs.Info(this.Ctx.Request.URL.String())
+	//获取到请求的path部分
+	requestURL := this.Ctx.Request.URL.Path
+	secret := models.MidasConfig.AppKey + "&"
+	requestData := url.Values{}
+	for key, value := range this.Ctx.Request.Form {
+		requestData.Add(key, value[0])
+		logs.Debug(key, "=", value[0])
+	}
+	method := "GET"
+	valid := models.VerifySig(method, requestURL, requestData, secret, requestData.Get("sig"))
+	if valid {
+		logs.Debug("valid")
+		orderIdStr := requestData.Get("appmeta")
+		strs := strings.Split(orderIdStr, "*")
+		orderId := strs[0]
+		payOrderId := requestData.Get("token")
+		orders := models.GetOrders(orderId, payOrderId)
+		if orders != nil && orders.State == 0 {
+			orders.State = 1
+			models.UpdateOrders(orders)
+			itemId := fmt.Sprintf("%d", orders.GoodsId)
+			//通知游戏服务器
+			go MidasNotifyToGameServer(orders.OrderId, orders.PlayerId, itemId, orders.ZoneId, orders.PayChannel)
+		}
+		response := make(map[string]interface{})
+		response["ret"] = 0
+		response["msg"] = "OK"
+		this.Data["json"] = response
+		this.ServeJSON()
+	} else {
+		logs.Debug("invalid")
+		response := make(map[string]interface{})
+		response["ret"] = 4
+		response["msg"] = "请求参数错误：（sig）"
+		this.Data["json"] = response
+		this.ServeJSON()
+	}
+}
+
+func MidasNotifyToGameServer(orderId string, roleId string, itemId string, serverId string, platform string) {
+	data := url.Values{}
+	var buf bytes.Buffer
+	buf.WriteString(orderId)
+	buf.WriteString(roleId)
+	buf.WriteString(itemId)
+	buf.WriteString(models.MidasConfig.GameNotify)
+	h := md5.New()
+	h.Write(buf.Bytes())
+	cipherStr := h.Sum(nil)
+	md5Str := hex.EncodeToString(cipherStr)
+	data["orderId"] = []string{orderId}
+	data["roleId"] = []string{roleId}
+	data["itemId"] = []string{itemId}
+	data["serverId"] = []string{serverId}
+	data["platform"] = []string{platform}
+	data["md5"] = []string{md5Str}
+	format := "http://%s/recharge"
+	logs.Debug("itemId=", itemId)
+	urlpath := fmt.Sprintf(format, models.ServerConfig[serverId].ServerHost)
+	for {
+		res, err := http.PostForm(urlpath, data)
+		if err != nil {
+			logs.Debug("PostForm error ", err)
+			time.Sleep(time.Second * 10)
+			continue
+		}
+		defer res.Body.Close()
+		result, err := ioutil.ReadAll(res.Body)
+		if err != nil {
+			logs.Debug("read res.body error ", err)
+			continue
+		} else {
+			logs.Debug("notify game server respose", string(result))
+			break
+		}
+
+	}
+
+}

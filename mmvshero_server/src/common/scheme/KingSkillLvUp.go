@@ -1,0 +1,50 @@
+package scheme
+
+import (
+	"encoding/json"
+	"fmt"
+	. "galaxy"
+	"os"
+)
+
+type KingSkillLvUp struct {
+	 Id 	 int32
+	 BaseId 	 int32
+	 Name 	 string
+	 Lv 	 int32
+	 LvUpRoleLv 	 int32
+	 LvUpSoul 	 int32
+	 SkillId 	 int32
+
+}
+
+var KingSkillLvUps []*KingSkillLvUp
+var KingSkillLvUpmap map[int32]*KingSkillLvUp
+
+func LoadKingSkillLvUp(filepath string) {
+    fileName := "KingSkillLvUp.json"
+	file, err := os.Open(fmt.Sprintf("%s/%s", filepath, fileName))
+	if err != nil {
+		panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+	}
+	defer file.Close()
+
+	dec := json.NewDecoder(file)
+	_, err = dec.Token()
+	if err != nil {
+		panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+	}
+
+	KingSkillLvUpmap = make(map[int32]*KingSkillLvUp)
+	for dec.More() {
+		var temp KingSkillLvUp
+		err := dec.Decode(&temp)
+		if err != nil {
+			panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+		}
+		KingSkillLvUps = append(KingSkillLvUps, &temp)
+		KingSkillLvUpmap[temp.Id] = &temp
+	}
+
+	LogInfo("Load KingSkillLvUp Scheme Success!")
+}

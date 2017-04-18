@@ -1,0 +1,253 @@
+package achievement
+
+import (
+	. "Gameserver/cache"
+	"Gameserver/global"
+	. "Gameserver/logic"
+	. "Gameserver/logic/award"
+	"common"
+	"common/protocol"
+	"common/scheme"
+	"fmt"
+	"galaxy"
+
+	"github.com/golang/protobuf/proto"
+)
+
+type Achievement struct {
+	schemeId    int32
+	reachedNum  int32           //达成数量
+	finishLevel int32           //完成等级，完成指领取奖励
+	targetNum   map[int32]int32 // key Achievement level - 1
+	awardId     map[int32]int32 // key Achievement level - 1
+}
+
+type UserAchievements struct {
+	user         IRole
+	Achievements map[int32]*Achievement //key Mission schemeId
+}
+
+const (
+	key  = "Role:%v:Achievement:%v"
+	keys = "Role:%v:Achievements"
+)
+
+func (this *UserAchievements) key(roleId int64, schemeId int32) string {
+	return fmt.Sprintf(key, roleId, schemeId)
+}
+
+func (this *UserAchievements) keys(roleId int64) string {
+	return fmt.Sprintf(keys, roleId)
+}
+
+func (this *UserAchievements) Init(user IRole) {
+	this.user = user
+	this.Achievements = make(map[int32]*Achievement)
+}
+
+func (this *UserAchievements) Load() error {
+	roleId := this.user.GetUid()
+	if this.Achievements == nil {
+		this.Achievements = make(map[int32]*Achievement)
+	}
+	//获取所有keys
+	resp, err := RedisCmd("SMEMBERS", this.keys(roleId))
+	if err != nil {
+		galaxy.LogError(err)
+		return err //没有
+	}
+
+	keys, _ := resp.List()
+	for _, key := range keys {
+		//获取数据
+		resp, err := RedisCmd("GET", key)
+		if err != nil {
+			galaxy.LogError(err)
+			return nil
+		}
+
+		if buff, _ := resp.Bytes(); buff != nil {
+			cache := &AchievementCache{}
+			err = proto.Unmarshal(buff, cache)
+			this.Achievements[cache.GetSchemeId()] = this.newAchievement(cache)
+		} else {
+			galaxy.LogError("SREM: ", this.keys(roleId), key)
+			RedisCmd("SREM", this.keys(roleId), key)
+		}
+	}
+
+	if err != nil {
+		galaxy.LogError(err)
+	}
+
+	this.LoadFirst()
+	return nil
+}
+
+func (this *UserAchievements) LoadFirst() {
+	if len(this.Achievements) > 0 {
+		return
+	}
+
+	for id, v := range scheme.Achievementmap {
+		achievement := &Achievement{}
+		achievement.schemeId = id
+		achievement.finishLevel = 0
+		achievement.reachedNum = 0
+		achievement.awardId = ExtractIntMap(v.AwardId)
+		achievement.targetNum = ExtractIntMap(v.TargetNum)
+
+		this.Achievements[v.Id] = achievement
+		this.saveAchievementToDb(id)
+	}
+}
+
+func (this *UserAchievements) AchievementAll() *protocol.MsgAchievementAllRet {
+	this.LoadFirst()
+
+	list1 := make([]*protocol.Achievement, len(this.Achievements))
+
+	var i int32 = 0
+	for _, v := range this.Achievements {
+		list1[i] = v.FillInfo()
+		i++
+	}
+
+	m := new(protocol.MsgAchievementAllRet)
+	m.SetAchievements(list1)
+	return m
+}
+
+func (this *Achievement) FillInfo() *protocol.Achievement {
+	m := new(protocol.Achievement)
+	m.SchemeId = proto.Int32(this.schemeId)
+	m.ReachedNum = proto.Int32(this.reachedNum)
+	m.FinishLevel = proto.Int32(this.finishLevel)
+	m.RealFinishLevel = proto.Int32(this.getRealFinishLevel())
+	return m
+}
+
+func (this *UserAchievements) newAchievementCache(m *Achievement) *AchievementCache {
+	c := &AchievementCache{}
+	c.SchemeId = proto.Int32(m.schemeId)
+	c.ReachedNum = proto.Int32(m.reachedNum)
+	c.FinishLevel = proto.Int32(m.finishLevel)
+	c.AwardId = make(map[int32]int32)
+	for k, v := range m.awardId {
+		c.AwardId[k] = v
+	}
+	c.TargetNum = make(map[int32]int32)
+	for k, v := range m.targetNum {
+		c.TargetNum[k] = v
+	}
+
+	return c
+}
+
+func (this *UserAchievements) newAchievement(cache *AchievementCache) *Achievement {
+	s := &Achievement{}
+	s.schemeId = cache.GetSchemeId()
+	s.reachedNum = cache.GetReachedNum()
+	s.finishLevel = cache.GetFinishLevel()
+	s.awardId = make(map[int32]int32)
+	for k, v := range cache.GetAwardId() {
+		s.awardId[k] = v
+	}
+
+	s.targetNum = make(map[int32]int32)
+	for k, v := range cache.GetTargetNum() {
+		s.targetNum[k] = v
+	}
+
+	return s
+}
+
+func (this *UserAchievements) saveAchievementToDb(schemeId int32) bool {
+	if achievement, ok := (*this).Achievements[schemeId]; ok {
+		buff, err := proto.Marshal(this.newAchievementCache(achievement))
+		if err != nil {
+			galaxy.LogError(err)
+			return false
+		}
+		if _, err = RedisCmd("SET", this.key(this.user.GetUid(), achievement.schemeId), buff); err != nil {
+			galaxy.LogError(err)
+			return false
+		}
+
+		if _, err := RedisCmd("SADD", this.keys(this.user.GetUid()), this.key(this.user.GetUid(), achievement.schemeId)); err != nil {
+			galaxy.LogError(err)
+			return false
+		}
+
+		return true
+	}
+	return false
+}
+
+//添加达成数量
+func (this *UserAchievements) AchievementAddNum(schemeId, num int32, isReplace bool) (common.RetCode, int32) {
+	if achievement, ok := this.Achievements[schemeId]; ok {
+		//成就达到最高级后不再累加
+		if achievement.reachedNum < achievement.targetNum[int32(len(achievement.targetNum)-1)] {
+			if isReplace == true {
+				if achievement.reachedNum < num {
+					achievement.reachedNum = num
+				} else {
+					return common.RetCode_AchievementFinished, 0
+				}
+
+			} else {
+				achievement.reachedNum += num
+			}
+
+			this.saveAchievementToDb(schemeId)
+			//发送成就完成通知
+			achievement.notify(this.user)
+			return common.RetCode_Success, achievement.reachedNum
+		}
+
+	}
+	return common.RetCode_AchievementIdError, 0
+}
+
+func (this *Achievement) notify(user IRole) {
+	ret := &protocol.MsgAchievementNotifyRet{}
+	ret.SetAchievement(this.FillInfo())
+	buf, err := proto.Marshal(ret)
+	if err != nil {
+		galaxy.LogError(err)
+		return
+	}
+
+	global.SendMsg(int32(protocol.MsgCode_AchievementNotifyRet), user.GetSid(), buf)
+}
+
+func (this *Achievement) getRealFinishLevel() int32 {
+	//获取可领取奖励等级
+	var realFinishLevel int32 = 0
+	//从0开始
+	for i := 0; i < len(this.targetNum); i++ {
+		if this.reachedNum >= this.targetNum[int32(i)] {
+			realFinishLevel = int32(i + 1)
+		} else {
+			break
+		}
+	}
+	return realFinishLevel
+}
+
+func (this *UserAchievements) AchievementFinish(schemeId int32) common.RetCode {
+	if achievement, ok := this.Achievements[schemeId]; ok {
+		if achievement.getRealFinishLevel() > achievement.finishLevel {
+			achievement.finishLevel++
+			//发放当前完成成就的奖励
+			Award(achievement.awardId[achievement.finishLevel-1], this.user, true)
+			this.saveAchievementToDb(schemeId)
+			achievement.notify(this.user)
+			return common.RetCode_Success
+		} else {
+			return common.RetCode_AchievementUnableFinish
+		}
+	}
+	return common.RetCode_AchievementIdError
+}

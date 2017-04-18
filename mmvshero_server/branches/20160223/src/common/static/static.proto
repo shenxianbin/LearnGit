@@ -1,0 +1,184 @@
+syntax = "proto2";
+
+package static;
+
+message MsgStaticRoleCreate
+{
+	required int64 role_uid = 1;
+	required int32 lv = 2;
+	required int32 stone = 3;
+    	required int32 gold = 4;
+   	required int32 free_gold = 5;
+   	required int32 trophy = 6;
+  	required int32 total_charge = 7;
+	required int64 last_login_time = 8;
+    	required string ip = 9;
+    	required int64 create_time = 10;
+}
+
+message MsgStaticRoleLogin
+{
+	required int64 role_uid = 1;
+	required int32 lv = 2;
+	required int32 stone = 3;
+    	required int32 gold = 4;
+   	required int32 free_gold = 5;
+   	required int32 trophy = 6;
+  	required int32 total_charge = 7;
+	required int64 last_login_time = 8;
+    	required string ip = 9;
+    	required int64 create_time = 10;
+}
+
+message MsgStaticRoleChange
+{
+	required int64 role_uid = 1;
+	required int32 type = 2;
+	required int32 value = 3;
+}
+
+message MsgStaticKingSkill
+{
+	required int64 role_uid = 1;
+	required int32 skill_id = 2;
+	required int32 skill_lv = 3;
+}
+
+message MsgStaticHero
+{
+	required int64 role_uid = 1;
+	required int64 uid = 2;
+	required int32 scheme_id = 3;
+	required int32 lv = 4;
+	required int32 stage = 5;
+	required int32 rank = 6;
+}
+
+message MsgStaticHeroDel
+{
+	required int64 role_uid = 1;
+	required int64 uid = 2;
+}
+
+message MsgStaticSoldier
+{
+	required int64 role_uid = 1;
+	required int32 scheme_id = 2;
+	required int32 num = 3;
+	required int32 lv = 4;
+	required int32 stage = 5;
+}
+
+message MsgStaticBuilding
+{
+	required int64 role_uid = 1;
+	required int64 uid = 2;
+	required int32 scheme_id = 3;
+	required int32 lv = 4;
+}
+
+message MsgStaticStageLog
+{
+	required int64 role_uid = 1;
+	required int32 lv = 2;
+	required int32 scheme_id = 3;
+	required int32 status = 4;
+	required int32 is_passed = 5;
+	required int64 time_stamp = 6;
+}
+
+enum StageStatus
+{
+	begin = 0;
+	end = 1;
+}
+
+message MsgStaticResCollectLog
+{
+	required int64 role_uid = 1;
+	required int32 type = 2;
+	required int32 value = 3;
+	required int64 time_stamp = 4;
+}
+
+enum ResCollectType
+{
+	blood = 0;
+	soul = 1;
+}
+
+message MsgStaticStoneExchangeLog
+{
+	required int64 role_uid = 1;
+	required int32 scheme_id = 2;
+	required int64 time_stamp = 3;
+}
+
+message MsgStaticPayLog
+{
+	required int64 role_uid = 1;
+	required int32 lv = 2;
+	required int32 type = 3;
+	required int32 scheme_id = 4;
+	required int32 gold = 5;
+	required int64 time_stamp = 6;
+}
+
+/*
+b)	魔血补充-升级魔王 n
+c)	魔血补充-更换对手 n
+d)	魔血补充-购买据点 n
+e)	魔血补充-购买装饰 n
+g)	魔魂补充-升级魔王 n
+h)	魔魂补充-购买据点 n
+i)	魔魂补充-购买装饰 n
+j)	进化加速 魔物 ok
+k)	一键进化 ok
+l)	建筑升级加速 ok
+m)	建筑一键升级 ok
+n)	技能升级加速 ok
+o)	技能一键升级 ok
+*/
+
+enum PayType
+{
+	item = 0;
+	bloodExchagePvp = 1;
+	bloodBuyMappoint = 2;
+	bloodBuyDecoration = 3;
+	soulBuyMappoint = 4;
+	soulBuyDecoration = 5;
+	evolutionSpeedup = 6;
+	evolutionOnekey = 7;
+	upBuildingSpeedup = 8;
+	upBuildingOnekey = 9;
+	upKingskillSpeedup = 10;
+	upKingskillOnekey = 11;
+}
+
+message MsgStaticChargeLog
+{
+	required int64 role_uid = 1;
+	required int32 lv = 2;
+	required int32 scheme_id = 3;
+	required int32 gold = 4;
+	required int32 price = 5;
+	required int64 time_stamp = 6;
+}
+
+enum MsgStaticCode 
+{
+	RoleCreate = 1000001;
+	RoleLogin = 1000002;
+	RoleChange = 1000003;
+	KingSkill = 1000004;
+	Hero = 1000005;
+	HeroDel = 1000006;
+	Soldier = 1000007;
+	Building = 1000008;
+	StageLog = 1000009;
+	ResCollectLog = 1000010;
+	StoneExchangeLog = 1000011;
+	PayLog = 1000012;
+	ChargeLog = 1000013;
+}

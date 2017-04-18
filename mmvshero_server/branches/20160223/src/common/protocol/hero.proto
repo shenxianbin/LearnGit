@@ -1,0 +1,143 @@
+syntax="proto2";
+
+package protocol;
+
+message HeroCreateInfo
+{
+	required int64 cd = 1;
+	required int32 create_id = 2;
+	required int32 cost_order_plan_id = 3;
+	required int64 start_timestamp = 4;
+	required int64 death_timestamp = 5;
+	required int32 fix_magic = 6;
+}
+
+message HeroSkillInfo
+{
+	required int32 skill_id = 1;
+	required int32 skill_lv = 2;
+}
+
+message HeroInfo
+{
+	required int64 uid = 1;
+	required int32 scheme_id = 2;
+	required int32 lv = 3;
+	required int32 lv_exp = 4;
+	required int32 stage = 5;
+	required int64 stage_timestamp = 6;
+	required int64 stage_speedup = 7; 
+	required int32 rank = 8;
+	required int32 rank_exp = 9;
+	repeated HeroSkillInfo skill_list = 10;
+}
+
+message HeroListInfo 
+{
+	repeated HeroInfo hero_list = 1;
+}
+
+//获得魔使通知
+message MsgHeroInfoNotify
+{
+	required HeroInfo hero = 1;
+}
+
+//失去魔使通知
+message MsgHeroLoseNotify
+{
+	required int64 uid = 1;
+}
+
+message MsgHeroCreateFinishReq
+{
+	
+}
+
+message MsgHeroCreateFinishRet
+{
+	required int32 retcode = 1;
+}
+
+message MsgHeroCreateShockReq
+{
+	
+}
+
+message MsgHeroCreateShockRet
+{
+	required int32 retcode = 1;
+}
+
+message MsgHeroCreateGiveUpReq
+{
+	
+}
+
+message MsgHeroCreateGiveUpRet
+{
+	required int32 retcode = 1;
+}
+
+//魔化通知
+message MsgHeroCreateNotify
+{
+	required HeroCreateInfo infos = 1;
+}
+
+// 魔使技能强化
+message MsgHeroSkillLvUpReq
+{
+	required int64 hero_uid = 1;
+	required int32 skill_id = 2;
+}
+
+message MsgHeroSkillLvUpRet
+{
+	required int32 retcode = 1;
+}
+
+// 魔使进化
+message MsgHeroEvoReq
+{
+	required int64 hero_uid = 1;
+	repeated int64 need_hero_uid = 2;
+	required int32 use_money = 3;
+}
+
+message MsgHeroEvoRet
+{
+	required int32 retcode = 1;
+}
+
+message MsgHeroEvoFinishReq
+{
+	required int32 use_money = 1;
+}
+
+message MsgHeroEvoFinishRet
+{
+	required int32 retcode = 1;
+}
+
+message MsgHeroEvoSpeedUpReq
+{
+	
+}
+
+message MsgHeroEvoSpeedUpRet
+{
+	required int32 retcode = 1;
+}
+
+// 魔使合成
+message MsgHeroMixReq
+{
+	required int64 target_uid = 1;
+	repeated int64 uids = 2;
+}
+
+message MsgHeroMixRet
+{
+	required int32 retcode = 1;
+}

@@ -1,0 +1,75 @@
+syntax="proto2";
+
+package protocol;
+
+message RoleInfo
+{
+	required int64 uid = 1;
+	required string nickname = 2;
+	required int32 lv = 3;
+	required int32 exp = 4;
+	required int32 order = 5;
+	required int64 order_timestamp = 6;
+	required int64 soul = 7;
+	required int32 stone = 8;
+	required int32 gold = 9;
+	repeated KingSkill king_skills = 10;
+	required int64 vip = 11;
+	required int32 chat_free_time = 12;
+	required int32 new_player_guide_step = 13;
+	required string alias = 14;
+}
+
+//属性变更通知
+enum RoleAttrType
+{
+	Lv = 1;
+	Exp = 2;
+	Order = 3;
+	Order_Timestamp = 4;
+	Soul =5;
+	Stone = 6;
+	Gold = 7;
+	KingSkillLv = 8;
+	Vip = 9;
+	Chat_FreeTime = 10;
+}
+
+message MsgRoleInfoUpdateNotify
+{
+	required RoleAttrType attr_type = 1;
+	required int64 attr_value = 2;
+}
+
+//设置昵称
+message MsgRoleSetNicknameReq
+{
+	required string nickname = 1;
+}
+
+message MsgRoleSetNicknameRet
+{
+	required int32 retcode = 1;
+}
+
+//新手引导
+message MsgRoleNewGuideUpdate
+{
+	required int32 new_player_guide_step = 1;
+}
+
+message KingSkill
+{
+	required int32 skill_id = 1;
+	required int32 lv = 2;
+}
+
+//开始技能升级
+message MsgRoleKingSkillLvUpReq{
+	required int32 skill_id = 1;
+}
+
+message MsgRoleKingSkillLvUpRet{
+	required int32 retCode = 1;
+}
+

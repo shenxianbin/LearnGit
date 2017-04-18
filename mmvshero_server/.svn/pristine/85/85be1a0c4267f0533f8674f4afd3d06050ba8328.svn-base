@@ -1,0 +1,12 @@
+syntax="proto2";
+
+package cache;
+
+message AchievementCache
+{
+	required int32	schemeId 	= 1 ;//scheme id
+	required int32	reachedNum  = 2 ;    
+	required int32  finishLevel = 3 ; 
+	map<int32,int32> targetNum  = 4;
+	map<int32,int32> awardId    = 5;
+}

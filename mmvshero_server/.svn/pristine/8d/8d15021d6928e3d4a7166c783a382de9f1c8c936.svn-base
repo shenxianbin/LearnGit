@@ -1,0 +1,71 @@
+syntax="proto2";
+
+package protocol;
+
+import "award.proto";
+
+message ArenaRankInfo
+{
+	required int32 rank = 1;
+	required int64 role_uid = 2;
+	required string nickname = 3;
+	required int32 role_lv = 4;
+	required int32 score = 5;
+}
+
+message MsgArenaQueryReq
+{
+	
+}
+
+message MsgArenaQueryRet
+{
+	required int32 retcode = 1;
+	required int32 my_point = 2;
+	required int32 best_score = 3;
+	required int32 my_rank = 4;
+	required int64 boss_version = 5;
+	required int32 boss_id = 6;
+	repeated AwardInfo boss_award1 = 7;
+	repeated AwardInfo boss_award2 = 8;
+	repeated AwardInfo boss_award3 = 9;
+	repeated ArenaRankInfo infos = 10;
+}
+
+message MsgArenaFightReq
+{
+	required int32 score = 1;
+}
+
+message MsgArenaFightRet 
+{
+	required int32 retcode =1;
+	required int32 new_rank = 2;
+}
+
+message MsgArenaShopQueryReq
+{
+	
+}
+
+message MsgArenaShopQueryRet
+{
+	required int32 retcode =1;
+	required int64 timestamp = 2;
+	required int32 panel = 3;
+	repeated AwardInfo info = 4;
+	repeated int32 shop_record = 5;
+}
+
+message MsgArenaShopBuyReq
+{
+	required int32 pos = 1;
+}
+
+message MsgArenaShopBuyRet
+{
+	required int32 retcode = 1;
+	required int32 pos = 2;
+	required int32 count = 3;
+	required int32 rest_point = 4;
+}

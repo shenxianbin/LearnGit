@@ -1,0 +1,53 @@
+package redis
+
+import (
+	// "fmt"
+	// . "galaxy/logs"
+	"github.com/mediocregopher/radix.v2/redis"
+	"strings"
+)
+
+type GxRedis struct {
+	client *redis.Client
+	host   string
+}
+
+func NewGxRedis() *GxRedis {
+	return &GxRedis{}
+}
+
+func (this *GxRedis) Cmd(cmd string, args ...interface{}) (*redis.Resp, error) {
+	resp := this.client.Cmd(cmd, args)
+	if resp.Err != nil {
+
+		//write tcp 192.168.1.221:58586->192.168.1.221:6580: use of closed network connection
+		if len(resp.Err.Error()) >= 83 && strings.Index(resp.Err.Error(), "use of closed network connection") != -1 {
+			if this.connect() != nil {
+				panic("Connect to redis failed!")
+			}
+			resp = this.client.Cmd(cmd, args)
+		}
+
+		return resp, resp.Err
+	}
+
+	return resp, nil
+}
+
+func (this *GxRedis) Run(config string) error {
+	this.host = config
+	return this.connect()
+}
+
+func (this *GxRedis) connect() error {
+	var err error
+	this.client, err = redis.Dial("tcp", this.host)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (this *GxRedis) Close() {
+	this.client.Close()
+}

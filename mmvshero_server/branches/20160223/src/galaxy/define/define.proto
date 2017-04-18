@@ -1,0 +1,13 @@
+syntax="proto2";
+
+package define;
+
+message MsgHelloReq {
+	required int32 serverId = 1;
+	required string serverType = 2;
+}
+
+message MsgHelloRet {
+	required int32 errorCode = 1;
+}
+

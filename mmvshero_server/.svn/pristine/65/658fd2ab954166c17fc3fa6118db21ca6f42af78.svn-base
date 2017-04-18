@@ -1,0 +1,55 @@
+package scheme
+
+import (
+	"encoding/json"
+	"fmt"
+	. "galaxy"
+	"os"
+)
+
+type Building struct {
+	 Id 	 int32
+	 Show 	 int32
+	 Name 	 int32
+	 BattleType 	 int32
+	 NeedKingLv 	 int32
+	 ActionFlashId 	 int32
+	 ActionSoundID 	 int32
+	 Icon 	 string
+	 Icon2 	 string
+	 ShowSkillId 	 int32
+	 Details 	 int32
+	 Notes 	 string
+
+}
+
+var Buildings []*Building
+var Buildingmap map[int32]*Building
+
+func LoadBuilding(filepath string) {
+    fileName := "Building.json"
+	file, err := os.Open(fmt.Sprintf("%s/%s", filepath, fileName))
+	if err != nil {
+		panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+	}
+	defer file.Close()
+
+	dec := json.NewDecoder(file)
+	_, err = dec.Token()
+	if err != nil {
+		panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+	}
+
+	Buildingmap = make(map[int32]*Building)
+	for dec.More() {
+		var temp Building
+		err := dec.Decode(&temp)
+		if err != nil {
+			panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+		}
+		Buildings = append(Buildings, &temp)
+		Buildingmap[temp.Id] = &temp
+	}
+
+	LogInfo("Load Building Scheme Success!")
+}

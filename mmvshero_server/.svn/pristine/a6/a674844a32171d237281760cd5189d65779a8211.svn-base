@@ -1,0 +1,47 @@
+syntax="proto2";
+
+package protocol;
+
+message ItemInfo
+{
+	required int64 uid = 1;
+	required int32 scheme_id = 2;
+	required int32 num = 3;
+}
+
+message ItemListInfo
+{
+	repeated ItemInfo item_list = 1;
+}
+
+//道具数量变更
+message MsgItemInfoUpdateNotify
+{
+	required ItemInfo infos =1;
+}
+
+//道具使用
+message ItemUseInfo
+{
+	required int64 uid =1;
+	required int32 num =2;
+}
+
+enum ItemUserType
+{
+	NONE = 0;
+	HERO = 1;
+	SOLDIER = 2;
+}
+
+message MsgItemUseReq
+{
+	repeated ItemUseInfo infos = 1;
+	required ItemUserType user_type = 2;
+	required int64 user_id = 3;
+}
+
+message MsgItemUseRet
+{
+	required int32 retcode = 1;
+}

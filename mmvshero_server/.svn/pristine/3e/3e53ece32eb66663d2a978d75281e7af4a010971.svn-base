@@ -1,0 +1,354 @@
+package role
+
+import (
+	"Gameserver/global"
+	"Gameserver/logic"
+	"Gameserver/logic/activity"
+	"Gameserver/logic/award"
+	"common/protocol"
+	"common/static"
+	"errors"
+	"fmt"
+	. "galaxy"
+	"galaxy/define"
+	"strconv"
+	"time"
+
+	"github.com/golang/protobuf/proto"
+)
+
+func InitRoleModule() {
+	low = 999999
+	init_protocol()
+}
+
+const (
+	loginTokenKey   = "loginToken:%v"    //%v = token, value = roleId, valid time : tokenExpireTime
+	accountTokenKey = "account:%v:token" //%v = roleId ,value = token
+	ipKey           = "ipKey:%v"         //%v = role_uid
+)
+
+var total_time int64
+var total_count int64
+var high int64
+var low int64
+
+// 注册协议
+func init_protocol() {
+	GxService().RegisterConnectorLoseLogicCallBack("GateServer", GxService().Config().GetConnectorConfig(0).ConnectServerId(), func() {
+		logic.RemoveAll()
+		LogDebug("GateServer lose connect, all role remove")
+	})
+
+	global.RegisterMsg(define.MSGCODE_LOSE, func(sid int64, msg []byte) {
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		logic.RemRoleByUid(role.GetUid())
+		logic.RemRoleBySid(sid)
+
+		LogDebug("Role[sid:", sid, "] [uid:", role.GetUid(), "] lose connect")
+	})
+
+	global.RegisterMsg(int32(protocol.MsgCode_LoginInReq), func(sid int64, msg []byte) {
+		LogDebug("into LoginAuthReq:")
+		last := time.Now().UnixNano()
+		req := &protocol.MsgLoginInReq{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogError(err)
+			return
+		}
+
+		LogDebug("Role[sid:", sid, "] [uid:", req.GetTokenKey(), "] Begin LoginIn......")
+		role, err := loginByToken(sid, req.GetTokenKey())
+		if err != nil {
+			LogError(err)
+			return
+		}
+		LogDebug("Role[sid:", sid, "] [uid:", role.GetUid(), "] End LoginIn......")
+
+		ret := &protocol.MsgLoginInRet{}
+		ret.SetSystemTime(time.Now().Unix())
+		ret.SetOpenServer(activity.ActModule().GetOpenServerTime())
+		ret.RoleInfo = role.FillRoleInfo()
+		ret.ItemListInfo = role.FillItemListInfo()
+		ret.HeroListInfo = role.FillHeroListInfo()
+		ret.AllSoldiers = role.FillAllSoldiersInfo()
+		ret.BuildingInfo = role.FillBuildingListInfo()
+		ret.MapInfo = role.FillMapInfo()
+
+		buf, err := proto.Marshal(ret)
+		if err != nil {
+			LogError(err)
+			return
+		}
+
+		global.SendMsg(int32(protocol.MsgCode_LoginInRet), sid, buf)
+
+		delta := (time.Now().UnixNano() - last) / 1000000
+		total_time += delta
+		total_count++
+		if delta > high {
+			high = delta
+		}
+		if delta < low {
+			low = delta
+		}
+
+		LogDebug("Role[sid:", sid, "] [uid:", role.GetUid(), "] Packet LoginIn...... Cost : ", delta, " ms ", "total_time : ", total_time, " total_count : ", total_count, " Avg : ", total_time/total_count, " High : ", high, " Low : ", low)
+	})
+
+	global.RegisterMsg(int32(protocol.MsgCode_RoleSetNicknameReq), func(sid int64, msg []byte) {
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		reqMsg := &protocol.MsgRoleSetNicknameReq{}
+		err := proto.Unmarshal(msg, reqMsg)
+		if err != nil {
+			return
+		}
+
+		retMsg := &protocol.MsgRoleSetNicknameRet{
+			Retcode: proto.Int32(int32(role.SetNickname(reqMsg.GetNickname()))),
+		}
+		buf, err := proto.Marshal(retMsg)
+		if err != nil {
+			return
+		}
+		global.SendMsg(int32(protocol.MsgCode_RoleSetNicknameRet), sid, buf)
+	})
+
+	global.RegisterMsg(int32(protocol.MsgCode_RoleNewGuideUpdate), func(sid int64, msg []byte) {
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		reqMsg := &protocol.MsgRoleNewGuideUpdate{}
+		err := proto.Unmarshal(msg, reqMsg)
+		if err != nil {
+			return
+		}
+
+		if role.GetNewPlayerGuideStep() >= reqMsg.GetNewPlayerGuideStep() {
+			return
+		}
+
+		//新手引导奖励
+		switch reqMsg.GetNewPlayerGuideStep() {
+		case 12:
+			award.Award(5, role, true)
+		case 31:
+			award.Award(6, role, true)
+		case 34:
+			award.Award(7, role, true)
+			role.ItemCost(2, 1, true)
+		}
+
+		role.SetNewPlayerGuideStep(reqMsg.GetNewPlayerGuideStep(), true)
+	})
+
+	global.RegisterMsg(int32(protocol.MsgCode_GuidePlunderAwardReq), func(sid int64, msg []byte) {
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		reqMsg := &protocol.MsgGuidePlunderAwardReq{}
+		err := proto.Unmarshal(msg, reqMsg)
+		if err != nil {
+			return
+		}
+
+		retCode := role.GuidePlunderAward()
+		ret := &protocol.MsgGuidePlunderAwardRet{}
+		ret.SetRetcode(int32(retCode))
+
+		buf, err := proto.Marshal(ret)
+		if err != nil {
+			LogError(err)
+			return
+		}
+
+		global.SendMsg(int32(protocol.MsgCode_GuidePlunderAwardRet), sid, buf)
+	})
+
+	global.RegisterMsg(int32(protocol.MsgCode_RoleKingSkillLvUpReq), func(sid int64, msg []byte) {
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		req := &protocol.MsgRoleKingSkillLvUpReq{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogError(err)
+			return
+		}
+		retCode := role.KingSkillLvUp(req.GetSkillId())
+		ret := &protocol.MsgRoleKingSkillLvUpRet{}
+		ret.SetRetCode(int32(retCode))
+
+		buf, err := proto.Marshal(ret)
+		if err != nil {
+			LogError(err)
+			return
+		}
+
+		global.SendMsg(int32(protocol.MsgCode_RoleKingSkillLvUpRet), sid, buf)
+	})
+
+	global.RegisterMsg(int32(protocol.MsgCode_RechargeReq), func(sid int64, msg []byte) {
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		ret := &protocol.MsgRechargeRet{}
+		ret.Records = role.GetRechargeRecordsMap()
+
+		buf, err := proto.Marshal(ret)
+		if err != nil {
+			LogError(err)
+			return
+		}
+
+		global.SendMsg(int32(protocol.MsgCode_RechargeRet), sid, buf)
+	})
+}
+
+//登录
+func Login(sid int64, role_uid int64) (*Role, error) {
+	if logic.GetRoleByUid(role_uid) != nil {
+		LogError("Role Already Login")
+		return nil, errors.New("Role Already Login")
+	}
+
+	//查询数据库
+	resp, err := GxService().Redis().Cmd("GET", GenRoleCacheKey(role_uid))
+	if err != nil {
+		LogError(err)
+		return nil, err
+	}
+	var role *Role
+	roleBytes, _ := resp.Bytes()
+	if roleBytes != nil {
+		role = NewRole()
+		err = role.LoadAllInfo(roleBytes)
+		if err != nil {
+			LogError(role_uid, err)
+			return nil, err
+		}
+
+		role.sid = sid
+		logic.AddRoleBySid(sid, role)
+		logic.AddRoleByUid(role_uid, role)
+		StaticRoleLogin(role)
+		LogDebug("Role[", sid, "] LoadDB Success")
+	} else {
+		role, err = CreateRole(role_uid)
+		if err != nil {
+			LogError(err)
+			return nil, err
+		}
+
+		role.sid = sid
+
+		logic.AddRoleBySid(sid, role)
+		logic.AddRoleByUid(role_uid, role)
+		StaticRoleCreate(role)
+		LogDebug("Role[", sid, "] Create Success")
+	}
+
+	return role, nil
+}
+
+//凭据登录
+func loginByToken(sid int64, token string) (*Role, error) {
+	resp, err := GxService().Redis().Cmd("GET", fmt.Sprintf(loginTokenKey, token))
+	if resp.IsNil() {
+		return nil, errors.New("not found")
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	var roleId int64
+	buff, _ := resp.Str()
+	temp, _ := strconv.Atoi(buff)
+	roleId = int64(temp)
+
+	return Login(sid, roleId)
+}
+
+func StaticRoleCreate(role *Role) {
+	msg := &static.MsgStaticRoleCreate{}
+	msg.SetRoleUid(role.GetUid())
+	msg.SetLv(role.GetLv())
+	//msg.SetStone(role.GetStone())
+	msg.SetGold(role.GetGold())
+	//msg.SetFreeGold(role.GetFreeGold())
+	//msg.SetTrophy(role.GetTrophy())
+	msg.SetTotalCharge(0)
+	msg.SetLastLoginTime(time.Now().Unix())
+
+	resp, err := GxService().Redis().Cmd("GET", fmt.Sprintf(ipKey, role.GetUid()))
+	if err != nil {
+		LogError(err)
+		msg.SetIp("")
+	} else {
+		ip, errip := resp.Str()
+		if errip != nil {
+			LogError(errip)
+		}
+		msg.SetIp(ip)
+	}
+	msg.SetCreateTime(time.Now().Unix())
+
+	buf, err := proto.Marshal(msg)
+	if err != nil {
+		LogError(err)
+		return
+	}
+	global.SendToStaticServer(int32(static.MsgStaticCode_RoleCreate), buf)
+	LogDebug("StaticRoleCreate msg : ", msg)
+}
+
+func StaticRoleLogin(role *Role) {
+	msg := &static.MsgStaticRoleLogin{}
+	msg.SetRoleUid(role.GetUid())
+	msg.SetLv(role.GetLv())
+	//	msg.SetStone(role.GetStone())
+	msg.SetGold(role.GetGold())
+	//	msg.SetFreeGold(role.GetFreeGold())
+	//	msg.SetTrophy(role.GetTrophy())
+	msg.SetTotalCharge(0)
+	msg.SetLastLoginTime(time.Now().Unix())
+
+	resp, err := GxService().Redis().Cmd("GET", fmt.Sprintf(ipKey, role.GetUid()))
+	if err != nil {
+		LogError(err)
+		msg.SetIp("")
+	} else {
+		ip, errip := resp.Str()
+		LogDebug(ip)
+		if errip != nil {
+			LogError(errip)
+		}
+		msg.SetIp(ip)
+	}
+	msg.SetCreateTime(time.Now().Unix())
+
+	buf, err := proto.Marshal(msg)
+	if err != nil {
+		LogError(err)
+		return
+	}
+	global.SendToStaticServer(int32(static.MsgStaticCode_RoleLogin), buf)
+}

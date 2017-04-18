@@ -1,0 +1,412 @@
+package gm
+
+import (
+	"Centreserver/client"
+	"Gameserver/logic/building"
+	"Gameserver/logic/hero"
+	"Gameserver/logic/item"
+	"Gameserver/logic/role"
+	"Gameserver/logic/rolestate"
+	"Gameserver/logic/soldier"
+	"common/cache"
+	"common/gm"
+	"fmt"
+	. "galaxy"
+	"galaxy/nets/packet"
+	"net/http"
+	"runtime"
+	"strconv"
+	"strings"
+	"time"
+
+	_ "net/http/pprof"
+
+	"github.com/golang/protobuf/jsonpb"
+	"github.com/golang/protobuf/proto"
+)
+
+const retNull = "{\"retCode\":\"%s\",\"content\":\"%s\"}"
+const retContent = "{\"retCode\":\"%s\",\"content\":%s}"
+
+func notifyToGameServer(serverId int32, roleUid int64) error {
+	LogDebug("notify server: ", serverId, " role_uid: ", roleUid)
+	msg := packet.NewPacket(0, int32(gm.GmMsgCode_GmCommandNotify))
+	content := new(gm.MsgGmCommandNotify)
+	content.SetUid(roleUid)
+	buf, err := proto.Marshal(content)
+	if err != nil {
+		return err
+	}
+	msg.SetContent(buf)
+	client.ClientManager().SendToServer("GameServer", int(serverId), msg)
+	return nil
+}
+
+func handlerGmCommandQuery(w http.ResponseWriter, r *http.Request) {
+	roleUidStr := r.FormValue("RoleUid")
+	w.Header().Add("Access-Control-Allow-Origin", "*")
+	if roleUidStr == "" {
+		fmt.Fprintf(w, retNull, "RoleUid Empty", "")
+		return
+	}
+	roleUid, _ := strconv.ParseInt(roleUidStr, 10, 64)
+
+	gmCache := new(cache.GmRoleQueryAll)
+	roleCache := new(cache.RoleCache)
+	itemListCache := make(map[int64]*cache.ItemCache)
+	heroListCache := make(map[int64]*cache.HeroCache)
+	soldierListCache := make(map[int32]*cache.SoldierCache)
+	buildingListCache := make(map[int64]*cache.BuildingCache)
+	gmOrderList := make(map[int64]*cache.GmCommandOrder)
+
+	//role
+	resp, err := GxService().Redis().Cmd("GET", role.GenRoleCacheKey(roleUid))
+	if err != nil {
+		fmt.Fprintf(w, retNull, "RoleBaseInfo QueryRedis Error : "+err.Error(), "")
+		return
+	}
+
+	if buf, _ := resp.Bytes(); buf != nil {
+		err = proto.Unmarshal(buf, roleCache)
+		if err != nil {
+			fmt.Fprintf(w, retNull, "RoleBaseInfo Parse ProtoBuf Error : "+err.Error(), "")
+			return
+		}
+	} else {
+		fmt.Fprintf(w, retNull, "RoleUid Not Exist", "")
+		return
+	}
+
+	//item
+	resp, err = GxService().Redis().Cmd("SMEMBERS", item.GenItemListKey(roleUid))
+	if err != nil {
+		fmt.Fprintf(w, retNull, "RoleItemInfo QueryRedis Error : "+err.Error(), "")
+		return
+	}
+
+	cacheKeys, err := resp.List()
+	if err != nil {
+		fmt.Fprintf(w, retNull, "RoleItemInfo Parse List Error : "+err.Error(), "")
+		return
+	}
+
+	for _, key := range cacheKeys {
+		resp, err := GxService().Redis().Cmd("GET", key)
+		if err != nil {
+			continue
+		}
+
+		if buf, _ := resp.Bytes(); buf != nil {
+			itemCache := new(cache.ItemCache)
+			err := proto.Unmarshal(buf, itemCache)
+			if err != nil {
+				continue
+			}
+
+			itemListCache[itemCache.GetUid()] = itemCache
+		}
+	}
+
+	//hero
+	resp, err = GxService().Redis().Cmd("SMEMBERS", hero.GenHeroListKey(roleUid))
+	if err != nil {
+		fmt.Fprintf(w, retNull, "RoleHeroInfo QueryRedis Error : "+err.Error(), "")
+		return
+	}
+
+	cacheKeys, err = resp.List()
+	if err != nil {
+		fmt.Fprintf(w, retNull, "RoleHeroInfo Parse List Error : "+err.Error(), "")
+		return
+	}
+
+	for _, key := range cacheKeys {
+		resp, err := GxService().Redis().Cmd("GET", key)
+		if err != nil {
+			continue
+		}
+
+		if buf, _ := resp.Bytes(); buf != nil {
+			heroCache := new(cache.HeroCache)
+			err := proto.Unmarshal(buf, heroCache)
+			if err != nil {
+				continue
+			}
+
+			heroListCache[heroCache.GetUid()] = heroCache
+		}
+	}
+
+	//soldier
+	resp, err = GxService().Redis().Cmd("SMEMBERS", soldier.GenSoldierListKey(roleUid))
+	if err != nil {
+		fmt.Fprintf(w, retNull, "RoleSoldiersCampInfo QueryRedis Error : "+err.Error(), "")
+		return
+	}
+
+	cacheKeys, err = resp.List()
+	if err != nil {
+		fmt.Fprintf(w, retNull, "RoleSoldiersCampInfo Parse List Error : "+err.Error(), "")
+		return
+	}
+
+	for _, key := range cacheKeys {
+		resp, err := GxService().Redis().Cmd("GET", key)
+		if err != nil {
+			continue
+		}
+
+		if buf, _ := resp.Bytes(); buf != nil {
+			soldierCache := new(cache.SoldierCache)
+			err := proto.Unmarshal(buf, soldierCache)
+			if err != nil {
+				continue
+			}
+
+			soldierListCache[soldierCache.GetSchemeId()] = soldierCache
+		}
+	}
+
+	//building
+	resp, err = GxService().Redis().Cmd("SMEMBERS", building.GenBuildingListKey(roleUid))
+	if err != nil {
+		fmt.Fprintf(w, retNull, "RoleBuildingInfo QueryRedis Error : "+err.Error(), "")
+		return
+	}
+
+	cacheKeys, err = resp.List()
+	if err != nil {
+		fmt.Fprintf(w, retNull, "RoleBuildingInfo Parse List Error : "+err.Error(), "")
+		return
+	}
+
+	for _, key := range cacheKeys {
+		resp, err := GxService().Redis().Cmd("GET", key)
+		if err != nil {
+			continue
+		}
+
+		if buf, _ := resp.Bytes(); buf != nil {
+			buildingCache := new(cache.BuildingCache)
+			err := proto.Unmarshal(buf, buildingCache)
+			if err != nil {
+				continue
+			}
+
+			buildingListCache[buildingCache.GetUid()] = buildingCache
+		}
+	}
+
+	//Order
+	resp, err = GxService().Redis().Cmd("SMEMBERS", gm.GenGmOrderListKey(roleUid))
+	if err != nil {
+		fmt.Fprintf(w, retNull, "RoleOrderInfo QueryRedis Error : "+err.Error(), "")
+		return
+	}
+
+	cacheKeys, err = resp.List()
+	if err != nil {
+		fmt.Fprintf(w, retNull, "RoleOrderInfo Parse List Error : "+err.Error(), "")
+		return
+	}
+
+	for _, key := range cacheKeys {
+		resp, err := GxService().Redis().Cmd("GET", key)
+		if err != nil {
+			continue
+		}
+
+		if buf, _ := resp.Bytes(); buf != nil {
+			gmOrder := new(cache.GmCommandOrder)
+			err := proto.Unmarshal(buf, gmOrder)
+			if err != nil {
+				continue
+			}
+
+			gmOrderList[gmOrder.GetOrderId()] = gmOrder
+		}
+	}
+
+	gmCache.SetRole(roleCache)
+
+	gmCache.SetItem(itemListCache)
+	gmCache.SetHero(heroListCache)
+	gmCache.SetSoldier(soldierListCache)
+	gmCache.SetBuilding(buildingListCache)
+	gmCache.SetGmOrder(gmOrderList)
+
+	marshaler := new(jsonpb.Marshaler)
+	roleJson, err := marshaler.MarshalToString(gmCache)
+	if err != nil {
+		fmt.Fprintf(w, retNull, "RoleAllInfo Parse Json Error : "+err.Error(), "")
+		return
+	}
+
+	fmt.Fprintf(w, retContent, "Query RoleAllInfo Success", roleJson)
+	runtime.GC()
+}
+
+func handlerGmCommandProcess(w http.ResponseWriter, r *http.Request) {
+	roleUidStr := r.FormValue("RoleUid")
+	r.Form.Del("RoleUid")
+	moduleStr := r.FormValue("Module")
+	r.Form.Del("Module")
+	propertyStr := r.FormValue("Property")
+	r.Form.Del("Property")
+	uidOrSchemeIdStr := r.FormValue("UidOrSchemeId")
+	r.Form.Del("UidOrSchemeId")
+
+	w.Header().Add("Access-Control-Allow-Origin", "*")
+
+	if roleUidStr == "" || moduleStr == "" || propertyStr == "" || uidOrSchemeIdStr == "" {
+		fmt.Fprintf(w, retNull, "Args Empty", "")
+		return
+	}
+
+	if _, has := gm.CommandModule_value[moduleStr]; !has {
+		fmt.Fprintf(w, retNull, "Module Error", "")
+		return
+	}
+
+	if _, has := gm.CommandProperty_value[propertyStr]; !has {
+		fmt.Fprintf(w, retNull, "Property Error", "")
+		return
+	}
+
+	roleUid, _ := strconv.ParseInt(roleUidStr, 10, 64)
+	module := gm.CommandModule_value[moduleStr]
+	property := gm.CommandProperty_value[propertyStr]
+	uidOrSchemeId, _ := strconv.ParseInt(uidOrSchemeIdStr, 10, 64)
+
+	//check
+	for k, v := range r.Form {
+		if _, has := gm.CommandOption_value[k]; !has {
+			fmt.Fprintf(w, retNull, "GmOrder Option Error", "")
+			return
+		}
+
+		valueStr := strings.Split(v[0], ",")
+		operation := valueStr[0]
+		if _, has := gm.CommandOperation_value[operation]; !has {
+			fmt.Fprintf(w, retNull, "GmOrder Operation Error", "")
+			return
+		}
+	}
+
+	resp, err := GxService().Redis().Cmd("GET", role.GenRoleCacheKey(roleUid))
+	if err != nil {
+		fmt.Fprintf(w, retNull, "RoleUid QueryRedis Error : "+err.Error(), "")
+		return
+	}
+
+	if buf, _ := resp.Bytes(); buf == nil {
+		fmt.Fprintf(w, retNull, "RoleUid Not Exist", "")
+		return
+	}
+
+	//生成订单
+	now := time.Now().UnixNano() / 1000000
+	gmCommandOrder := new(cache.GmCommandOrder)
+	gmCommandOrder.SetOrderId(now)
+	gmCommandOrder.SetCommandModule(module)
+	gmCommandOrder.SetCommandProperty(property)
+	gmCommandOrder.SetUidOrSchemeId(uidOrSchemeId)
+	gmCommandContentList := make([]*cache.GmCommandContent, 0)
+	for k, v_list := range r.Form {
+		for _, v := range v_list {
+			content := new(cache.GmCommandContent)
+			content.SetOption(gm.CommandOption_value[k])
+			valueStr := strings.Split(v, ",")
+			content.SetOperation(gm.CommandOperation_value[valueStr[0]])
+			value, _ := strconv.ParseInt(valueStr[1], 10, 64)
+			content.SetValue(value)
+			gmCommandContentList = append(gmCommandContentList, content)
+		}
+	}
+	gmCommandOrder.SetContent(gmCommandContentList)
+	gmCommandOrder.SetOrderStatus(int32(gm.OrderStatus_NoProcess))
+
+	buf, err := proto.Marshal(gmCommandOrder)
+	if err != nil {
+		fmt.Fprintf(w, retNull, "GmOrder Parse Protobuf Error : "+err.Error(), "")
+		return
+	}
+
+	orderKey := gm.GenGmOrderKey(roleUid, now)
+	if _, err := GxService().Redis().Cmd("SET", orderKey, buf); err != nil {
+		fmt.Fprintf(w, retNull, "GmOrder Set Error : "+err.Error(), "")
+		return
+	}
+
+	if _, err := GxService().Redis().Cmd("SADD", gm.GenGmOrderListKey(roleUid), orderKey); err != nil {
+		fmt.Fprintf(w, retNull, "GmOrderList Sadd Error : "+err.Error(), "")
+		return
+	}
+
+	//玩家在线通知相关GameServer
+	roleState, err := rolestate.NewRoleState(roleUid)
+	LogDebug("RoleState : ", roleState)
+	if err != nil {
+		fmt.Fprintf(w, retNull, "Create GmOrder Success But Query RoleState Error : "+err.Error(), "")
+		return
+	}
+
+	if roleState.GetOnlineServer() != 0 {
+		notifyToGameServer(roleState.GetOnlineServer(), roleUid)
+		fmt.Fprintf(w, retNull, "Create GmOrder Success And Notify Online Player", "")
+		return
+	}
+
+	fmt.Fprintf(w, retNull, "Create GmOrder Success", "")
+	runtime.GC()
+}
+
+func handlerGmCommandDel(w http.ResponseWriter, r *http.Request) {
+	roleUidStr := r.FormValue("RoleUid")
+	orderUidListStr := r.FormValue("OrderUid")
+
+	w.Header().Add("Access-Control-Allow-Origin", "*")
+
+	if roleUidStr == "" || orderUidListStr == "" {
+		fmt.Fprintf(w, retNull, "Args Empty", "")
+		return
+	}
+
+	roleUid, _ := strconv.ParseInt(roleUidStr, 10, 64)
+	orderUids := strings.Split(orderUidListStr, ",")
+	for _, orderUidStr := range orderUids {
+		orderUid, _ := strconv.ParseInt(orderUidStr, 10, 64)
+		orderKey := gm.GenGmOrderKey(roleUid, orderUid)
+
+		resp, err := GxService().Redis().Cmd("DEL", orderKey)
+		if err != nil {
+			fmt.Fprintf(w, retNull, "Del GmOrder Redis Error : "+err.Error(), "")
+			return
+		}
+
+		count, _ := resp.Int()
+		if count <= 0 {
+			fmt.Fprintf(w, retNull, "Del GmOrder NoExist", "")
+			return
+		}
+
+		if _, err := GxService().Redis().Cmd("SREM", gm.GenGmOrderListKey(roleUid), orderKey); err != nil {
+			fmt.Fprintf(w, retNull, "Del GmOrderList Fail : "+err.Error(), "")
+			return
+		}
+	}
+
+	fmt.Fprintf(w, retNull, "Del GmOrderList Success", "")
+}
+
+func GMWebInit(addr string) {
+	http.HandleFunc("/gmcommand/query", handlerGmCommandQuery)
+	http.HandleFunc("/gmcommand/process", handlerGmCommandProcess)
+	http.HandleFunc("/gmcommand/del", handlerGmCommandDel)
+	http.NotFoundHandler()
+
+	err := http.ListenAndServe(addr, nil)
+	if err != nil {
+		LogFatal(err)
+	}
+}

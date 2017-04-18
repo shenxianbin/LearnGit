@@ -1,0 +1,16 @@
+syntax="proto2";
+
+package protocol;
+
+import "award.proto";
+
+message MsgDropReq
+{
+	required int32 type = 1;
+} 
+
+message MsgDropRet
+{
+	required int32 retcode = 1;
+	repeated AwardInfo infos = 2;
+}

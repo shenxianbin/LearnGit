@@ -1,0 +1,64 @@
+package scheme
+
+import (
+	"encoding/json"
+	"fmt"
+	. "galaxy"
+	"os"
+)
+
+type Fb struct {
+	 Id 	 int32
+	 MapTable 	 string
+	 MapPicture 	 string
+	 MapSize 	 string
+	 NeededLv  	 int32
+	 EveryWeek 	 string
+	 EveryDay 	 string
+	 AttackTimes 	 string
+	 LeastCostOrder 	 string
+	 ResultCostOrder 	 string
+	 LeastRoleExp 	 string
+	 ResultRoleExp 	 string
+	 RecommendTypeName 	 int32
+	 EveryWeekText 	 int32
+	 RecommendType 	 int32
+	 Effect 	 int32
+	 AwardId 	 string
+	 Icon 	 string
+	 TextIcon 	 string
+	 Name 	 int32
+	 Details 	 int32
+
+}
+
+var Fbs []*Fb
+var Fbmap map[int32]*Fb
+
+func LoadFb(filepath string) {
+    fileName := "Fb.json"
+	file, err := os.Open(fmt.Sprintf("%s/%s", filepath, fileName))
+	if err != nil {
+		panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+	}
+	defer file.Close()
+
+	dec := json.NewDecoder(file)
+	_, err = dec.Token()
+	if err != nil {
+		panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+	}
+
+	Fbmap = make(map[int32]*Fb)
+	for dec.More() {
+		var temp Fb
+		err := dec.Decode(&temp)
+		if err != nil {
+			panic(fmt.Sprintf("Read [file ：%s]occurs error: %s", fileName, err))
+		}
+		Fbs = append(Fbs, &temp)
+		Fbmap[temp.Id] = &temp
+	}
+
+	LogInfo("Load Fb Scheme Success!")
+}

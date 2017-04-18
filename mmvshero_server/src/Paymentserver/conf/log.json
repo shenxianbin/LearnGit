@@ -1,0 +1,14 @@
+{
+    "filename": "logs/server.log",
+    "separate": [
+        "emergency",
+        "alert",
+        "critical",
+        "error",
+        "warning",
+        "notice",
+        "info",
+        "debug"
+    ],
+    "level":7
+}

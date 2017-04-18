@@ -1,0 +1,240 @@
+syntax="proto2";
+
+package protocol;
+
+enum MsgCode {
+
+//Login(1)
+	LoginAuthReq = 11801001;
+ 	LoginAuthRet = 18101001;
+
+ 	LoginInReq = 11801002;
+ 	LoginInRet = 18101002;
+
+//Role(2)
+	RoleInfoUpdateNotify = 18102001;
+
+	RoleSetNicknameReq = 11802002;
+	RoleSetNicknameRet = 18102002;
+
+	RoleNewGuideUpdate = 11802003;
+
+//Item(3)
+	ItemInfoUpdateNotify = 18103001;
+
+	ItemUseReq = 11803002;
+	ItemUseRet = 18103002;
+
+//hero(4)
+	HeroInfoNotify = 18104001;
+
+	HeroLoseNotify = 18104002;
+
+	HeroCreateFinishReq = 11804003;
+	HeroCreateFinishRet = 18104003;
+	HeroCreateShockReq = 11804004;
+	HeroCreateShockRet = 18104004;
+	HeroCreateGiveUpRet = 11804005;
+	HeroCreateGiveUpReq = 18104005;
+	HeroCreateNotify = 18104006;
+
+	HeroLvUpNotify = 18104007;
+
+	HeroSkillLvUpReq = 11804008;
+	HeroSkillLvUpRet = 18104008;
+
+	HeroEvoReq = 11804009;
+	HeroEvoRet = 18104009;
+	HeroEvoFinishReq = 11804010;
+	HeroEvoFinishRet = 18104010;
+	HeroEvoSpeedUpReq = 11804011;
+	HeroEvoSpeedUpRet = 18104011;
+
+	HeroMixReq = 11804012;
+	HeroMixRet = 18104012;
+
+//Map(5)
+	MapRefreshReq = 11805001;
+	MapRefreshRet = 18105001;
+
+	MapUpdateNotify = 18105002;
+
+	MapInfoReq = 11805003;
+	MapInfoRet = 18105003;
+
+	MapRemoveObstacleReq = 11805004;
+	MapRemoveObstacleRet = 18105004;
+
+	MapUnLockPointReq = 11805005;
+	MapUnLockPointRet = 18105005;
+	
+	MapUpdatePointNotify = 18105006;
+
+//Drop(6)
+	DropReq = 11806001;
+	DropRet = 18106001;
+
+//Pvp(7)
+	PvpQueryReq = 11807001;
+	PvpQueryRet = 18107001;
+
+	PvpRankInfoReq = 11807002;
+	PvpRankInfoRet = 18107002;
+
+	PvpPrepareReq = 11807003;
+	PvpPrepareRet = 18107003;
+
+	PvpMatchReq = 11807004;
+	PvpMatchRet = 18107004;
+
+	PvpMatchIdReq = 11807005;
+
+	PvpStartReq = 11807006;
+	PvpStartRet = 18107006;
+
+	PvpGiveUpReq = 11807007;
+	PvpGiveUpRet = 18107007;
+
+	PvpFinishReq = 11807008;
+	PvpFinishRet = 18107008;
+
+//Soldier(8)
+ 	SoldierCreateReq = 11808001;
+ 	SoldierCreateRet = 18108001;
+	SoldierLvRet = 18108003;
+	SoldierUpgradeReq = 11808004;
+	SoldierUpgradeRet = 18108004;
+	SoldierCutDownUpgradeTimeReq = 11808005;
+	SoldierCutDownUpgradeTimeRet = 18108005;
+	SoldierRemoveUpgradeTimeReq = 11808006;
+	SoldierRemoveUpgradeTimeRet = 18108006;
+	SoldierSkillLvReq = 11808007;
+	SoldierSkillLvRet = 18108007;
+	SoldierFinishUpgradeReq = 11808008;
+	SoldierFinishUpgradeRet = 18108008;
+	SoldierAllEventsReq = 11808009;
+	SoldierAllEventsRet = 18108009;
+	SoldierEventDealWithReq = 11808010;
+	SoldierEventDealWithRet = 18108010;
+	SoldierAllReq = 11808011;
+	SoldierAllRet = 18108011;
+	SoldierNotify = 18108012;
+
+//Building(9)
+	BuildingStartLvUpReq = 11809001;
+	BuildingStartLvUpRet = 18109001;
+	BuildingCancelLvUpReq = 11809002;
+	BuildingCancelLvUpRet = 18109002;
+	BuildingFinishLvUpReq = 11809003;
+	BuildingFinishLvUpRet = 18109003;
+	BuildingLvUpRemoveTimeReq=11809004;
+	BuildingLvUpRemoveTimeRet=18109004;
+	BuildingInfoNotify = 18109005;
+	BuildingCollectReq = 11809006;
+	BuildingCollectRet = 18109006;
+
+//King(10)
+	KingSkillStartLvUpReq = 11810001;
+	KingSkillStartLvUpRet = 18110001;
+	KingSkillLvUpRemoveTimeReq = 11810002;
+	KingSkillLvUpRemoveTimeRet = 18110002;
+	KingSkillFinishLvUpReq = 11810003;
+	KingSkillFinishLvUpRet = 18110003;
+	KingSkillCancelLvUpReq = 11810004;
+	KingSkillCancelLvUpRet = 18110004;
+	KingAddLvReq = 11810005;
+	KingAddLvRet = 18110005;
+	KingSkillNotify = 18110006;
+
+//Stage(11)
+	StageAllReq  = 11811001;
+	StageAllRet  = 18111001;
+	StageBeginReq = 11811002;
+	StageBeginRet = 18111002;
+	StageFinishReq = 11811003;
+	StageFinishRet = 18111003;
+	StagePlayAnimationRet =11811004;
+	StagePlayAnimationReq =18111004;
+
+//mission(12)
+	MissionAllReq = 11812001;
+	MissionAllRet = 18112001;
+	MissionAddNumReq = 11812002;
+	MissionAddNumRet = 18112002;
+	MissionFinishReq = 11812003;
+	MissionFinishRet = 18112003;
+	MissionNotifyRet = 18112004;
+
+//Achievement 13
+	AchievementAllReq = 11813001;
+	AchievementAllRet = 18113001;
+	AchievementAddNumReq = 11813002;
+	AchievementAddNumRet = 18113002;
+	AchievementFinishReq = 11813003;
+	AchievementFinishRet = 18113003;
+	AchievementNotifyRet = 18113004;
+//Fb 14
+	FbAllReq = 11814001;
+	FbAllRet = 18114001;
+	FbBeginReq = 11814002;
+	FbBeginRet = 18114002;
+	FbFinishReq = 11814003;
+	FbFinishRet = 18114003;
+
+//Sign(15)
+	SignInitReq = 11815001;
+	SignInitRet = 18115001;
+
+	SignInReq = 11815002;
+	SignInRet = 18115002;
+
+//Mall(16)
+	MallInitReq = 11816001;
+	MallInitRet = 18116001;
+
+	MallBuyReq = 11816002;
+	MallBuyRet = 18116002;
+//friend 17
+	FriendAllReq = 11817001;
+	FriendAllRet = 18117001;
+	FriendSearchReq = 11817002;
+	FriendSearchRet = 18117002;
+	FriendDeleteReq = 11817003;
+	FriendDeleteRet = 18117003;
+	FriendSendExcitationReq = 11817004;
+	FriendSendExcitationRet = 18117004;
+	FriendUseExcitationReq = 11817005;
+	FriendUseExcitationRet = 18117005;
+	FriendSavePvpResultReq = 11817006;
+	FriendSavePvpResultRet = 18117006;
+
+	FriendRequestAllReq = 11817007;
+	FriendRequestAllRet = 18117007;
+	FriendRequestAddReq = 11817008;
+	FriendRequestAddRet = 18117008;
+	FriendRequestDealWithReq = 11817009;
+	FriendRequestDealWithRet = 18117009;
+
+	FriendInviteAddIdReq = 11817010;
+	FriendInviteAddIdRet = 18117010;
+
+//chat 18
+	ChatQueryReq = 11818001;
+	ChatQueryRet = 18118001;
+
+	ChatReq= 11818002;
+	ChatRet= 18118002;
+
+//fightreport 19
+	FightReportReq = 11819001;
+	FightReportRet = 18119001;
+
+	FightReportIdReq = 11819002;
+	FightReportIdRet = 18119002;
+
+	FightReportAdd = 11819003;
+
+	FightReportUpdate = 11819004;
+}
+
+

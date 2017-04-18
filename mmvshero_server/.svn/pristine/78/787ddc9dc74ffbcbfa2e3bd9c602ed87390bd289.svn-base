@@ -1,0 +1,213 @@
+package decoration
+
+import (
+	. "common/cache"
+	. "Gameserver/logic"
+	"common"
+	"common/protocol"
+	"common/scheme"
+	"errors"
+	"fmt"
+	. "galaxy"
+	"strconv"
+	"strings"
+
+	"github.com/golang/protobuf/proto"
+)
+
+const (
+	cache_decorationlist_key_t = "Role:%v:Decoration"
+	cache_decorationobj_key_t  = "Role:%v:Decoration:%v"
+)
+
+func genDecorationCacheKey(role_uid int64, decoration_scheme_id int32) string {
+	return fmt.Sprintf(cache_decorationobj_key_t, role_uid, decoration_scheme_id)
+}
+
+type Decoration struct {
+	DecorationCache
+	scheme_data *scheme.Decoration
+}
+
+func NewDecoration(scheme_id int32, num int32) (*Decoration, error) {
+	decoration_scheme, has := scheme.Decorationmap[scheme_id]
+	if !has {
+		return nil, errors.New("NewDecoration Scheme Error")
+	}
+
+	obj := new(Decoration)
+	obj.DecorationCache.SetSchemeId(scheme_id)
+	obj.DecorationCache.SetNum(num)
+	obj.scheme_data = decoration_scheme
+	return obj, nil
+}
+
+func LoadDecoration(buf []byte) (*Decoration, error) {
+	obj := new(Decoration)
+	err := proto.Unmarshal(buf, &obj.DecorationCache)
+	if err != nil {
+		return nil, err
+	}
+
+	decoration_scheme, has := scheme.Decorationmap[obj.GetSchemeId()]
+	if !has {
+		return nil, errors.New("LoadDecoration Scheme Error")
+	}
+	obj.scheme_data = decoration_scheme
+	return obj, nil
+}
+
+func (this *Decoration) FillDecorationInfo() *protocol.DecorationInfo {
+	msg := new(protocol.DecorationInfo)
+	msg.SetSchemeId(this.DecorationCache.GetSchemeId())
+	msg.SetNum(this.DecorationCache.GetNum())
+	return msg
+}
+
+func (this *Decoration) GetSize() (int32, int32) {
+	value := strings.Split(this.scheme_data.Size, ";")
+	x, _ := strconv.Atoi(value[0])
+	y, _ := strconv.Atoi(value[1])
+	return int32(x), int32(y)
+}
+
+type DecorationSys struct {
+	owner           IRole
+	decoration_list map[int32]*Decoration
+	cache_list_key  string
+}
+
+func (this *DecorationSys) Init(owner IRole) {
+	this.owner = owner
+	this.decoration_list = make(map[int32]*Decoration)
+	this.cache_list_key = fmt.Sprintf(cache_decorationlist_key_t, this.owner.GetUid())
+}
+
+func (this *DecorationSys) Load() error {
+	resp, err := GxService().Redis().Cmd("SMEMBERS", this.cache_list_key)
+	if err != nil {
+		return err
+	}
+
+	cacheKeys, err := resp.List()
+	if err != nil {
+		return err
+	}
+
+	for _, key := range cacheKeys {
+		resp, err := GxService().Redis().Cmd("GET", key)
+		if err != nil {
+			GxService().Redis().Cmd("SREM", this.cache_list_key, key)
+			continue
+		}
+
+		if buf, _ := resp.Bytes(); buf != nil {
+			decoration, err := LoadDecoration(buf)
+			if err != nil {
+				LogFatal(err)
+				continue
+			}
+			this.decoration_list[decoration.GetSchemeId()] = decoration
+		}
+	}
+
+	return nil
+}
+
+func (this *DecorationSys) Save(decoration *Decoration) {
+	buf, err := proto.Marshal(&decoration.DecorationCache)
+	if err != nil {
+		LogFatal(err)
+		return
+	}
+
+	key := genDecorationCacheKey(this.owner.GetUid(), decoration.DecorationCache.GetSchemeId())
+	if _, err := GxService().Redis().Cmd("SET", key, buf); err != nil {
+		LogFatal(err)
+		return
+	}
+
+	if _, err := GxService().Redis().Cmd("SADD", this.cache_list_key, key); err != nil {
+		LogFatal(err)
+		return
+	}
+}
+
+func (this *DecorationSys) FillDecorationListInfo() *protocol.DecorationListInfo {
+	msg := new(protocol.DecorationListInfo)
+	msg.DecorationList = make([]*protocol.DecorationInfo, len(this.decoration_list))
+	index := 0
+	for _, v := range this.decoration_list {
+		msg.DecorationList[index] = v.FillDecorationInfo()
+		index++
+	}
+	return msg
+}
+
+func (this *DecorationSys) DecorationObtain(scheme_id int32, num int32) common.RetCode {
+	owner_decoration, has := this.decoration_list[scheme_id]
+	if has {
+		if owner_decoration.GetNum()+num > owner_decoration.scheme_data.MaxNum {
+			return common.RetCode_DecorationNumMax
+		}
+
+		this.decoration_list[scheme_id].DecorationCache.SetNum(owner_decoration.DecorationCache.GetNum() + num)
+		this.Save(owner_decoration)
+	} else {
+		decoration_scheme, scheme_has := scheme.Decorationmap[scheme_id]
+		if !scheme_has {
+			return common.RetCode_SchemeData_Error
+		}
+		if num > decoration_scheme.MaxNum {
+			return common.RetCode_DecorationNumMax
+		}
+
+		new_decoration, _ := NewDecoration(scheme_id, num)
+		this.decoration_list[scheme_id] = new_decoration
+		this.Save(new_decoration)
+	}
+
+	return common.RetCode_Success
+}
+
+func (this *DecorationSys) DecorationObtainByMap(scheme_id int32, pos_x int32, pos_y int32) common.RetCode {
+	owner_decoration, has := this.decoration_list[scheme_id]
+	if has {
+		if owner_decoration.GetNum()+1 > owner_decoration.scheme_data.MaxNum {
+			return common.RetCode_DecorationNumMax
+		}
+
+		this.decoration_list[scheme_id].DecorationCache.SetNum(owner_decoration.DecorationCache.GetNum() + 1)
+		this.Save(owner_decoration)
+		this.freshMap(owner_decoration, pos_x, pos_y)
+	} else {
+		_, scheme_has := scheme.Decorationmap[scheme_id]
+		if !scheme_has {
+			return common.RetCode_SchemeData_Error
+		}
+
+		new_decoration, _ := NewDecoration(scheme_id, 1)
+		this.decoration_list[scheme_id] = new_decoration
+		this.Save(new_decoration)
+		this.freshMap(new_decoration, pos_x, pos_y)
+	}
+
+	return common.RetCode_Success
+}
+
+func (this *DecorationSys) DecorationSize(scheme_id int32) int32 {
+	d, has := this.decoration_list[scheme_id]
+	if has {
+		return d.GetNum()
+	}
+	return 0
+}
+
+func (this *DecorationSys) freshMap(decoration *Decoration, pos_x int32, pos_y int32) {
+	size_x, size_y := decoration.GetSize()
+	for i := pos_x; i < pos_x+size_x; i++ {
+		for j := pos_y; j < pos_y+size_y; j++ {
+			this.owner.MapSetPoint(i, j, common.MAP_NOWAY, common.MAP_OBJ_DECORATION, int64(decoration.GetSchemeId()))
+		}
+	}
+}

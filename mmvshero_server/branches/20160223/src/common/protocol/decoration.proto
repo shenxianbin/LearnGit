@@ -1,0 +1,15 @@
+syntax="proto2";
+
+package protocol;
+
+message DecorationInfo
+{
+	required int32 scheme_id = 1;
+	required int32 num = 2;
+}
+
+message DecorationListInfo
+{
+	repeated DecorationInfo decoration_list = 1;
+}
+

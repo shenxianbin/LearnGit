@@ -1,0 +1,259 @@
+syntax="proto2";
+
+package protocol;
+
+//魔使技能
+message PlunderHeroSkill
+{
+	required int32 skill_id = 1;
+	required int32 skill_lv = 2;
+}
+
+//魔使
+message PlunderHero
+{
+	required int64 uid = 1;
+	required int32 scheme_id = 2;
+	required int32 lv = 3;
+	required int32 stage = 4;
+	required int32 rank = 5;
+	repeated PlunderHeroSkill skill_list = 6;
+	repeated int32 properties = 7;//特性
+}
+
+//掠夺宝箱
+message PlunderAward
+{
+	required int32 type = 1;
+	required int32 code = 2;
+	required int32 amount = 3;
+}
+
+//守护队伍
+message PlunderTeam
+{
+	required int32 pos = 1;//位置
+	required int64 team_id = 2;
+	required int32 plunder_id = 3;//宝箱ID
+	required int64 role_uid = 4;
+	required string role_name = 5;
+	required int32 role_lv = 6;
+	repeated PlunderHero heros = 7;
+	required int64 start_time = 8;//开始运送时间
+	repeated PlunderAward least_award = 9; //保底
+	repeated PlunderAward more_award = 10;//可掠夺奖励
+	required bool sheild = 11;//护盾
+}
+
+//掠夺类型
+enum PlunderFightType
+{
+	Search = 1;
+	Revenge = 2;
+}
+
+//掠夺日志
+message PlunderReport
+{
+	required int64 attack_role_uid = 1;//掠夺方
+	required string attack_role_name = 2;
+	required int32 attack_role_lv = 3;
+	required int64 defence_role_uid = 4;//防守方
+	required string defence_role_name = 5;
+	required int32 defence_role_lv = 6;
+	repeated PlunderHero heros = 7; //队伍
+	required int64 fight_time = 8;//战斗结束时间
+	repeated int32 fight_result = 9;//战斗结果
+	required int32 fight_type = 10;//战斗类型
+	required bool has_shield = 11; //是否护盾
+	repeated PlunderAward plunder_award = 12; //掠夺资源
+	required bool is_revenged = 13;//是否复仇
+	required int64 revenge_cd = 14;//复仇CD
+}
+
+//护送 查询
+message MsgPlunderQueryReq
+{
+
+}
+
+message MsgPlunderQueryRet
+{
+	required int32 retcode = 1;
+	repeated PlunderTeam teams = 2;
+}
+
+//护送 队伍出发
+message MsgPlunderGuardReq
+{
+	required int32 pos = 1;
+	repeated int64 heros= 2;
+	repeated int32 properties = 3;
+	required  int32 plunder_award_id = 4;
+}
+
+message MsgPlunderGuardRet
+{
+	required int32 retcode = 1;
+	optional PlunderTeam teams = 2;
+}
+
+//护送 领取
+message MsgPlunderAwardReq
+{
+	required int32 pos = 1;
+}
+
+message MsgPlunderAwardRet
+{
+	required int32 retcode = 1;
+	required int32 pos = 2;
+}
+
+//护送 购买护盾
+message MsgPlunderSheildReq
+{
+	required int32 pos = 1;
+}
+
+message MsgPlunderSheildRet
+{
+	required int32 retcode = 1;
+	required int32 pos = 2;
+}
+
+//护送方 日志（当前）
+message MsgPlunderGuardNowReportReq
+{
+	required int32 pos = 1;
+}
+
+message MsgPlunderGuardNowReportRet
+{
+	required int32 retcode = 1;
+	repeated PlunderReport reports = 2;
+}
+
+message PlunderTeamLog
+{
+	required int64 team_id = 1;
+	repeated PlunderReport reports = 2;
+}
+
+//护送方 日志（曾经）
+message MsgPlunderGuardBeforeReportReq
+{
+
+}
+
+message MsgPlunderGuardBeforeReportRet
+{
+	required int32 retcode = 1;
+	repeated PlunderTeamLog team_log = 2;
+}
+
+//掠夺 请求 查询是否有在掠夺中的队伍
+message MsgPlunderSearchQueryReq
+{
+
+}
+
+message MsgPlunderSearchQueryRet
+{
+	required int32 retcode = 1;
+	optional PlunderTeam team = 2;
+	optional int64 locktime = 3;
+	optional int32 attack_times_for_team = 4;   //对当前队伍的掠夺次数，累计
+	optional int32 attack_times_for_daily = 5;  //当日进攻次数,当日累计
+}
+
+//掠夺 搜索
+message MsgPlunderSearchReq
+{
+
+}
+
+message MsgPlunderSearchRet
+{
+	required int32 retcode = 1;
+	optional PlunderTeam team = 2;
+}
+
+//掠夺 复仇搜索
+message MsgPlunderRevengeSearchReq
+{
+	required int64 role_uid = 1;
+	required int64 team_id = 2;
+}
+
+message MsgPlunderRevengeSearchRet
+{
+	required int32 retcode = 1;
+	optional PlunderTeam team = 2;
+}
+
+//掠夺 确认掠夺
+message MsgPlunderConfirmReq
+{
+	required int64 role_uid = 1;
+	required int64 team_id = 2;
+	required bool isRevenge = 3;
+}
+
+message MsgPlunderConfirmRet
+{
+	required int32 retcode = 1;
+	optional int64 locktime = 2;
+	optional int32 attack_times_for_daily = 3;  //当日进攻次数
+}
+
+//掠夺 更换对手
+message MsgPlunderChangeReq
+{
+	required int64 role_uid = 1;
+	required int64 team_id = 2;
+}
+
+message MsgPlunderChangeRet
+{
+	required int32 retcode = 1;
+	optional PlunderTeam team = 2;
+}
+
+//掠夺 开战
+message MsgPlunderFightReq
+{
+	required int64 role_uid = 1;
+	required int64 team_id = 2;
+	required bool is_win = 3;
+}
+
+message MsgPlunderFightRet
+{
+	required int32 retcode = 1;
+	required int32 attack_times_for_team = 4;   //对当前队伍的掠夺次数
+}
+
+//掠夺 放弃
+message MsgPlunderGiveUpReq
+{
+	required int64 role_uid = 1;
+	required int64 team_id = 2;
+}
+
+message MsgPlunderGiveUpRet
+{
+	required int32 retcode = 1;
+}
+
+//掠夺 日志
+message MsgPlunderReportReq
+{
+
+}
+
+message MsgPlunderReportRet
+{
+	required int32 retcode = 1;
+	repeated PlunderReport reports = 2;
+}

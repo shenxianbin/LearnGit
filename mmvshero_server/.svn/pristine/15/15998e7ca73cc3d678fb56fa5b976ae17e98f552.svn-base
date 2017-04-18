@@ -1,0 +1,12 @@
+syntax="proto2";
+
+package cache;
+
+message StageCache
+{
+	required int32	schemeId 	= 1 ;//scheme id
+	required bool	isBeginning = 2 ;
+	required bool	isPassed 	= 3;
+  	required bool   isPlayedAnimation = 4;
+	map<int32,int32>stars 		= 5;
+}

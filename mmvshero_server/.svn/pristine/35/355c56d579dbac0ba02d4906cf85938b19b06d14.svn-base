@@ -1,0 +1,35 @@
+syntax="proto2";
+
+package cache;
+
+message KingSkill
+{
+	required int32 skill_id = 1;
+	required int32 lv = 2;
+}
+
+message RoleCache
+{
+	required int64 uid = 1;
+	required string nickname = 2;
+	required int32 lv = 3;
+	required int32 exp = 4;
+	required int32 order = 5;
+	required int64 order_timestamp = 6;
+	required int64 soul = 7;
+	required int32 stone = 8;
+	required int32 gold = 9;
+	required int32 free_gold = 10;
+	map<int32,KingSkill> king_skills = 11;
+	required int64 vip = 12;
+	required int32 chat_free_time = 13;
+	required int64 chat_refresh_timestamp = 14;
+	required int32 new_player_guide_step = 15;
+	required int64 loginTime = 16;
+}
+
+message RoleStateCache
+{
+	required int32 online_server = 1;
+	required int64 fight_lock = 2;
+}

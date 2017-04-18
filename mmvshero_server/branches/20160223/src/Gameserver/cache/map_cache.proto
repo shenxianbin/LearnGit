@@ -1,0 +1,19 @@
+syntax="proto2";
+
+package cache;
+
+message MapGrid
+{
+	required int32 base_type = 1;
+	required int32 obj_type = 2;
+	required int64 id = 3;
+}
+
+message MapCache
+{
+	required int32 x_size = 1;
+	required int32 y_size = 2;
+	map<int32, MapGrid> maps = 3;
+	map<int32,int32> map_point_list = 4;
+	repeated int32 map_point_active = 5;
+}

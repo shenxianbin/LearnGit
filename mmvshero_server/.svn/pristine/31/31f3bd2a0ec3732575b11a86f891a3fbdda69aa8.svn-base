@@ -1,0 +1,471 @@
+package static
+
+import (
+	"Staticserver/ip"
+	"Staticserver/mysql"
+	"common"
+	"common/static"
+	. "galaxy"
+	"strings"
+
+	"github.com/golang/protobuf/proto"
+)
+
+const (
+	sql_role_create = `INSERT INTO players SET id=?,lv=?,stone=?,gold=?,freeGold=?,trophy=?,totalCharge=?,addedUpTime=?,
+					lastLoginTime=FROM_UNIXTIME(?),ip=?,area=?,createTime=FROM_UNIXTIME(?)`
+
+	sql_role_login = `UPDATE players SET addedUpTime=IF(DATEDIFF(FROM_UNIXTIME(?),lastLoginTime)>0,addedUpTime+1,addedUpTime),
+					lastLoginTime=FROM_UNIXTIME(?) WHERE id=?`
+
+	sql_role_change_lv           = "UPDATE players SET lv=? WHERE id=?"
+	sql_role_change_stone        = "UPDATE players SET stone=? WHERE id=?"
+	sql_role_change_gold         = "UPDATE players SET gold=? WHERE id=?"
+	sql_role_change_trophy       = "UPDATE players SET trophy=? WHERE id=?"
+	sql_role_change_total_charge = "UPDATE players SET totalCharge=? WHERE id=?"
+
+	sql_king_skills_insert = "INSERT INTO king_skills SET playerId=?,schemeId=?,level=?"
+	sql_king_skills_update = "UPDATE king_skills SET level=? WHERE playerId=? AND schemeId=?"
+
+	sql_heros_insert = "INSERT INTO heros SET playerId=?,schemeId=?,level=?,stage=?,rank=?"
+	sql_heros_update = "UPDATE heros SET level=?,stage=?,rank=? WHERE playerId=? AND schemeId=?"
+	sql_heros_del    = "DELETE FROM heros WHERE playerId=? AND uid=?"
+
+	sql_soldiers_insert = "INSERT INTO soldiers SET playerId=?,schemeId=?,num=?,level=?,stage=?"
+	sql_soldiers_update = "UPDATE soldiers SET num=?,level=?,stage=? WHERE playerId=? AND schemeId=?"
+
+	sql_buildings_insert = "INSERT INTO buildings SET playerId=?,uid=?,schemeId=?,lv=?"
+	sql_buildings_update = "UPDATE INTO buildings SET lv=? WHERE playerId=? AND uid=? AND schemeId=?"
+
+	sql_role_login_log     = "INSERT INTO login_logs SET playerId=?,ip=?,createTime=FROM_UNIXTIME(?)"
+	sql_stage_log          = "INSERT INTO stage_logs SET playerId=?,level=?,schemeId=?,status=?,isPassed=?,createTime=FROM_UNIXTIME(?)"
+	sql_res_collect_log    = "INSERT INTO resource_collect_log SET playerId=?,type=?,value=?,createTime=FROM_UNIXTIME(?)"
+	sql_stone_exchange_log = "INSERT INTO stone_exchange_log SET playerId=?,schemeId=?,createTime=FROM_UNIXTIME(?)"
+	sql_pay_log            = "INSERT INTO pay_logs SET playerId=?,level=?,type=?,schemeId=?,gold=?,createTime=FROM_UNIXTIME(?)"
+	sql_charge_log         = "INSERT INTO charge_logs SET playerId=?,level=?,schemeId=?,gold=?,price=?,createTime=FROM_UNIXTIME(?)"
+)
+
+func init_protocol() {
+	RegisterMsg(int32(static.MsgStaticCode_RoleCreate), func(msg []byte) {
+		req := &static.MsgStaticRoleCreate{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogError(err)
+			return
+		}
+
+		LogDebug("MsgStaticCode_RoleCreate : ", req)
+
+		//查询IP
+		var area string
+		LogDebug("req IP : ", req.GetIp())
+		if req.GetIp() != "" {
+			ips := strings.Split(req.GetIp(), ":")
+			area, err = ip.Find(ips[0])
+			if err != nil {
+				LogError(err)
+			}
+		}
+
+		mysql.AsynExec(func(query string, args ...interface{}) {
+			res, err := mysql.Exec(query, args...)
+			if err != nil {
+				LogError(err)
+				return
+			}
+
+			if affect, _ := res.RowsAffected(); affect <= 0 {
+				LogError("RoleCreate insert failed")
+				return
+			}
+		},
+			sql_role_create, req.GetRoleUid(), req.GetLv(), req.GetStone(), req.GetGold(), req.GetFreeGold(),
+			req.GetTrophy(), req.GetTotalCharge(), 1, req.GetLastLoginTime(), req.GetIp(), area, req.GetCreateTime())
+
+		mysql.AsynExec(func(query string, args ...interface{}) {
+			res, err := mysql.Exec(query, args...)
+			if err != nil {
+				LogError(err)
+				return
+			}
+
+			if affect, _ := res.RowsAffected(); affect <= 0 {
+				LogError("RoleLoginLog insert failed")
+				return
+			}
+
+		}, sql_role_login_log, req.GetRoleUid(), req.GetIp(), req.GetCreateTime())
+	})
+
+	RegisterMsg(int32(static.MsgStaticCode_RoleLogin), func(msg []byte) {
+		req := &static.MsgStaticRoleLogin{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogError(err)
+			return
+		}
+
+		LogDebug("MsgStaticCode_RoleLogin : ", req)
+
+		mysql.AsynExec(func(query string, args ...interface{}) {
+			res, err := mysql.Exec(query, args...)
+			if err != nil {
+				LogError(err)
+				return
+			}
+
+			if affect, _ := res.RowsAffected(); affect <= 0 {
+				var area string
+				LogDebug("req IP : ", req.GetIp())
+				if req.GetIp() != "" {
+					ips := strings.Split(req.GetIp(), ":")
+					area, err = ip.Find(ips[0])
+					if err != nil {
+						LogError(err)
+					}
+				}
+
+				res, err := mysql.Exec(sql_role_create, req.GetRoleUid(), req.GetLv(), req.GetStone(), req.GetGold(), req.GetFreeGold(),
+					req.GetTrophy(), req.GetTotalCharge(), 1, req.GetLastLoginTime(), req.GetIp(), area, req.GetCreateTime())
+				if err != nil {
+					LogError(err)
+					return
+				}
+
+				if affect, _ := res.RowsAffected(); affect <= 0 {
+					LogError("RoleLogin insert failed")
+					return
+				}
+
+			}
+
+		}, sql_role_login, req.GetLastLoginTime(), req.GetLastLoginTime(), req.GetRoleUid())
+
+		mysql.AsynExec(func(query string, args ...interface{}) {
+			res, err := mysql.Exec(query, args...)
+			if err != nil {
+				LogError(err)
+				return
+			}
+
+			if affect, _ := res.RowsAffected(); affect <= 0 {
+				LogError("RoleLoginLog insert failed")
+				return
+			}
+
+		}, sql_role_login_log, req.GetRoleUid(), req.GetIp(), req.GetCreateTime())
+	})
+
+	RegisterMsg(int32(static.MsgStaticCode_RoleChange), func(msg []byte) {
+		req := &static.MsgStaticRoleChange{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogError(err)
+			return
+		}
+
+		LogDebug("MsgStaticCode_RoleChange : ", req)
+
+		var sql string
+		switch req.GetType() {
+		case common.RTYPE_LV:
+			sql = sql_role_change_lv
+			//		case common.RTYPE_STONE:
+			//			sql = sql_role_change_stone
+		case common.RTYPE_GOLD:
+			sql = sql_role_change_gold
+		case common.RTYPE_TROPHY:
+			sql = sql_role_change_trophy
+		case common.RTYPE_CHARGE:
+			sql = sql_role_change_total_charge
+		default:
+			LogError("RoleChange Type error : ", req.GetType())
+			return
+		}
+
+		mysql.AsynExec(func(query string, args ...interface{}) {
+			res, err := mysql.Exec(query, args...)
+			if err != nil {
+				LogError(err)
+				return
+			}
+
+			if affect, _ := res.RowsAffected(); affect <= 0 {
+				LogError("RoleChange update failed")
+				return
+			}
+
+		}, sql, req.GetValue(), req.GetRoleUid())
+	})
+
+	RegisterMsg(int32(static.MsgStaticCode_KingSkill), func(msg []byte) {
+		req := &static.MsgStaticKingSkill{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogError(err)
+			return
+		}
+
+		LogDebug("MsgStaticCode_KingSkill : ", req)
+
+		mysql.AsynExec(func(query string, args ...interface{}) {
+			res, err := mysql.Exec(query, args...)
+			if err != nil {
+				LogError(err)
+				return
+			}
+
+			if affect, _ := res.RowsAffected(); affect <= 0 {
+				res, err := mysql.Exec(sql_king_skills_insert, req.GetRoleUid(), req.GetSkillId(), req.GetSkillLv())
+				if err != nil {
+					LogError(err)
+					return
+				}
+
+				if affect, _ := res.RowsAffected(); affect <= 0 {
+					LogError("KingSkill insert failed")
+					return
+				}
+			}
+		}, sql_king_skills_update, req.GetSkillLv(), req.GetRoleUid(), req.GetSkillId())
+	})
+
+	RegisterMsg(int32(static.MsgStaticCode_Hero), func(msg []byte) {
+		req := &static.MsgStaticHero{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogError(err)
+			return
+		}
+
+		LogDebug("MsgStaticCode_Hero : ", req)
+
+		mysql.AsynExec(func(query string, args ...interface{}) {
+			res, err := mysql.Exec(query, args...)
+			if err != nil {
+				LogError(err)
+				return
+			}
+
+			if affect, _ := res.RowsAffected(); affect <= 0 {
+				res, err := mysql.Exec(sql_heros_insert, req.GetRoleUid(), req.GetSchemeId(), req.GetLv(), req.GetStage(), req.GetRank())
+				if err != nil {
+					LogError(err)
+					return
+				}
+
+				if affect, _ := res.RowsAffected(); affect <= 0 {
+					LogError("Hero insert failed")
+					return
+				}
+			}
+		}, sql_heros_update, req.GetLv(), req.GetStage(), req.GetRank(), req.GetRoleUid(), req.GetSchemeId())
+	})
+
+	RegisterMsg(int32(static.MsgStaticCode_Soldier), func(msg []byte) {
+		req := &static.MsgStaticSoldier{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogError(err)
+			return
+		}
+
+		LogDebug("MsgStaticCode_Soldier : ", req)
+
+		mysql.AsynExec(func(query string, args ...interface{}) {
+			res, err := mysql.Exec(query, args...)
+			if err != nil {
+				LogError(err)
+				return
+			}
+
+			if affect, _ := res.RowsAffected(); affect <= 0 {
+				res, err := mysql.Exec(sql_soldiers_insert, req.GetRoleUid(), req.GetSchemeId(), req.GetNum(), req.GetLv(), req.GetStage())
+				if err != nil {
+					LogError(err)
+					return
+				}
+
+				if affect, _ := res.RowsAffected(); affect <= 0 {
+					LogError("Soldier insert failed")
+					return
+				}
+			}
+		}, sql_soldiers_update, req.GetNum(), req.GetLv(), req.GetStage(), req.GetRoleUid(), req.GetSchemeId())
+	})
+
+	RegisterMsg(int32(static.MsgStaticCode_Building), func(msg []byte) {
+		req := &static.MsgStaticBuilding{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogError(err)
+			return
+		}
+
+		LogDebug("MsgStaticCode_Building : ", req)
+
+		mysql.AsynExec(func(query string, args ...interface{}) {
+			res, err := mysql.Exec(query, args...)
+			if err != nil {
+				LogError(err)
+				return
+			}
+
+			if affect, _ := res.RowsAffected(); affect <= 0 {
+				res, err := mysql.Exec(sql_buildings_insert, req.GetRoleUid(), req.GetUid(), req.GetSchemeId(), req.GetLv())
+				if err != nil {
+					LogError(err)
+					return
+				}
+
+				if affect, _ := res.RowsAffected(); affect <= 0 {
+					LogError("Building insert failed")
+					return
+				}
+			}
+		}, sql_buildings_update, req.GetLv(), req.GetRoleUid(), req.GetUid(), req.GetSchemeId())
+	})
+
+	RegisterMsg(int32(static.MsgStaticCode_StageLog), func(msg []byte) {
+		req := &static.MsgStaticStageLog{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogError(err)
+			return
+		}
+
+		LogDebug("MsgStaticCode_StageLog : ", req)
+
+		status, has := static.StageStatus_name[req.GetStatus()]
+		if !has {
+			LogError("StageStatus Enum error! : ", req.GetStatus())
+			return
+		}
+
+		mysql.AsynExec(func(query string, args ...interface{}) {
+			res, err := mysql.Exec(query, args...)
+			if err != nil {
+				LogError(err)
+				return
+			}
+
+			if affect, _ := res.RowsAffected(); affect <= 0 {
+				LogError("StageLog insert failed")
+				return
+			}
+
+		}, sql_stage_log, req.GetRoleUid(), req.GetLv(), req.GetSchemeId(), status, req.GetIsPassed(), req.GetTimeStamp())
+	})
+
+	RegisterMsg(int32(static.MsgStaticCode_ResCollectLog), func(msg []byte) {
+		req := &static.MsgStaticResCollectLog{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogError(err)
+			return
+		}
+
+		LogDebug("MsgStaticCode_ResCollectLog : ", req)
+
+		res_type, has := static.ResCollectType_name[req.GetType()]
+		if !has {
+			LogError("ResTypeLog Enum error! : ", req.GetType())
+			return
+		}
+
+		mysql.AsynExec(func(query string, args ...interface{}) {
+			res, err := mysql.Exec(query, args...)
+			if err != nil {
+				LogError(err)
+				return
+			}
+
+			if affect, _ := res.RowsAffected(); affect <= 0 {
+				LogError("ResCollectLog insert failed")
+				return
+			}
+
+		}, sql_res_collect_log, req.GetRoleUid(), res_type, req.GetValue(), req.GetTimeStamp())
+	})
+
+	RegisterMsg(int32(static.MsgStaticCode_StoneExchangeLog), func(msg []byte) {
+		req := &static.MsgStaticStoneExchangeLog{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogError(err)
+			return
+		}
+
+		LogDebug("MsgStaticCode_StoneExchangeLog : ", req)
+
+		mysql.AsynExec(func(query string, args ...interface{}) {
+			res, err := mysql.Exec(query, args...)
+			if err != nil {
+				LogError(err)
+				return
+			}
+
+			if affect, _ := res.RowsAffected(); affect <= 0 {
+				LogError("StoneExchangeLog insert failed")
+				return
+			}
+
+		}, sql_stone_exchange_log, req.GetRoleUid(), req.GetSchemeId(), req.GetTimeStamp())
+	})
+
+	RegisterMsg(int32(static.MsgStaticCode_PayLog), func(msg []byte) {
+		req := &static.MsgStaticPayLog{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogError(err)
+			return
+		}
+
+		LogDebug("MsgStaticCode_PayLog : ", req)
+
+		pay_type, has := static.PayType_name[req.GetType()]
+		if !has {
+			LogError("PayLog Enum error! : ", req.GetType())
+			return
+		}
+
+		mysql.AsynExec(func(query string, args ...interface{}) {
+			res, err := mysql.Exec(query, args...)
+			if err != nil {
+				LogError(err)
+				return
+			}
+
+			if affect, _ := res.RowsAffected(); affect <= 0 {
+				LogError("PayLog insert failed")
+				return
+			}
+
+		}, sql_pay_log, req.GetRoleUid(), req.GetLv(), pay_type, req.GetSchemeId(), req.GetGold(), req.GetTimeStamp())
+	})
+
+	RegisterMsg(int32(static.MsgStaticCode_ChargeLog), func(msg []byte) {
+		req := &static.MsgStaticChargeLog{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogError(err)
+			return
+		}
+
+		LogDebug("MsgStaticCode_ChargeLog : ", req)
+
+		mysql.AsynExec(func(query string, args ...interface{}) {
+			res, err := mysql.Exec(query, args...)
+			if err != nil {
+				LogError(err)
+				return
+			}
+
+			if affect, _ := res.RowsAffected(); affect <= 0 {
+				LogError("ChargeLog insert failed")
+				return
+			}
+
+		}, sql_charge_log, req.GetRoleUid(), req.GetLv(), req.GetSchemeId(), req.GetGold(), req.GetPrice(), req.GetTimeStamp())
+	})
+}

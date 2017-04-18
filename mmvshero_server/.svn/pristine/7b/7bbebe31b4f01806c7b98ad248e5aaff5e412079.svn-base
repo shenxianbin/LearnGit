@@ -1,0 +1,329 @@
+package main
+
+import (
+	. "Loginserver/cache"
+	// "encoding/json"
+	"fmt"
+	// "galaxy"
+	"flag"
+	. "galaxy/db/redis"
+	"galaxy/utils"
+	"log"
+	"net/http"
+	"strconv"
+
+	"github.com/golang/protobuf/proto"
+)
+
+const (
+	roleAutoKey          = "Role:AutoKey"
+	anonymousAutoKey     = "anonymous:AutoKey"
+	anonymousAccountName = "anonymous:%v"
+
+	accountKey = "account:%v" //%v= roleId, account
+
+	accountThirdpartTokenKey = "accountToken:%v:%v" //$v = type, token , value = roleId
+	usernameKey              = "accountName:%v"     //%v=username, value = roleId
+
+	loginTokenKey   = "loginToken:%v"    //%v = token, value = roleId, valid time : tokenExpireTime
+	accountTokenKey = "account:%v:token" //%v = roleId ,value = tokenExpireTime
+	ipKey           = "ipKey:%v"         //%v = role_uid
+
+	tokenExpireTime = 300 //second
+
+	responseKey        = "{\"status\":%d,\"loginToken\":\"%s\",\"server\":\"192.168.240.53\",\"port\":10000}"
+	responseAccountKey = "{\"status\":%d,\"username\":\"%s\",\"password\":\"%s\"}"
+)
+
+type AccountType int32
+
+const (
+	AccountType_NOMAL AccountType = iota
+	AccountType_IOS
+	AccountType_ANDROID
+)
+
+type errorCode int32
+
+const (
+	ERROR_NONE errorCode = iota
+	ERROR_USERNAME_IS_EMPTY
+	ERROR_PASSWORD_IS_EMPTY
+	ERROR_NOTFOUND
+	ERROR_PASSWORD_IS_NOT_MATCH
+	ERROR_USERNAME_IS_EXIST
+	ERROR_CREATE_ACCOUNT_FAIL
+	ERROR_DB
+	ERROR_UNKNOWN
+)
+
+type Account struct {
+	roleId         int64
+	username       string
+	password       string //md5
+	salt           string
+	accountType    int32
+	thirdpartToken string
+	loginTime      int64
+	createTime     int64
+}
+
+func (this *Account) toCache() *AccountCache {
+	cache := &AccountCache{}
+	cache.RoleId = this.roleId
+	cache.Username = this.username
+	cache.Password = this.password
+	cache.Salt = this.salt
+	cache.AccountType = this.accountType
+	cache.ThirdpartToken = this.thirdpartToken
+	cache.LoginTime = this.loginTime
+	cache.CreateTime = this.createTime
+	return cache
+}
+
+func (this *Account) readCache(cache *AccountCache) {
+	this.roleId = cache.RoleId
+	this.username = cache.Username
+	this.password = cache.Password
+	this.salt = cache.Salt
+	this.accountType = cache.AccountType
+	this.thirdpartToken = cache.ThirdpartToken
+	this.loginTime = cache.LoginTime
+	this.createTime = cache.CreateTime
+}
+
+func (this *Account) save() error {
+	buff, err := proto.Marshal(this.toCache())
+	if err != nil {
+		return err
+	}
+
+	if _, err = redis.Cmd("SET", fmt.Sprintf(accountKey, this.roleId), buff); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (this *Account) init() error {
+	resp, err := redis.Cmd("INCR", roleAutoKey)
+	if err != nil {
+		return err
+	}
+
+	this.roleId, _ = resp.Int64()
+	this.createTime = Time()
+	this.salt = Salt()
+	return nil
+}
+
+func getAccount(roleId int64) *Account {
+	account := &Account{}
+	resp, err := redis.Cmd("GET", fmt.Sprintf(accountKey, roleId))
+	if resp.IsNil() || err != nil {
+		return account
+	}
+
+	if buff, _ := resp.Bytes(); buff != nil {
+		cache := &AccountCache{}
+		err = proto.Unmarshal(buff, cache)
+		if err != nil {
+			return account
+		}
+
+		account.readCache(cache)
+	}
+	return account
+}
+
+//用户名登录 device 设备识别号
+func login(username, password, device, ip string) (string, errorCode) {
+	if len(username) == 0 {
+		return "", ERROR_USERNAME_IS_EMPTY
+	}
+	if len(password) == 0 {
+		return "", ERROR_PASSWORD_IS_EMPTY
+	}
+
+	var roleId int64
+	resp, err := redis.Cmd("GET", fmt.Sprintf(usernameKey, username))
+	if resp.IsNil() || err != nil {
+		return "", ERROR_NOTFOUND
+	}
+
+	buff, _ := resp.Str()
+	temp, _ := strconv.Atoi(buff)
+
+	roleId = int64(temp)
+	if roleId == 0 {
+		return "", ERROR_NOTFOUND
+	}
+
+	account := getAccount(roleId)
+	if account.roleId == 0 {
+		return "", ERROR_NOTFOUND
+	}
+
+	if account.password != MD5(fmt.Sprintf("%v%v", MD5(password), account.salt)) {
+		return "", ERROR_PASSWORD_IS_NOT_MATCH
+	}
+
+	account.loginTime = Time()
+	account.save()
+
+	//返回登录凭据
+	loginToken, err1 := account.generateLoginToken(device)
+	if err1 != ERROR_NONE {
+		return "", err1
+	}
+
+	redis.Cmd("SET", fmt.Sprintf(ipKey, roleId), ip)
+
+	return loginToken, ERROR_NONE
+}
+
+//登录
+func thirdpartLogin(from AccountType, thirdpartToken, device string) (string, errorCode) {
+	if len(thirdpartToken) == 0 {
+		return "", ERROR_NOTFOUND
+	}
+
+	resp, err := redis.Cmd("GET", fmt.Sprintf(accountThirdpartTokenKey, from, thirdpartToken))
+	if resp.IsNil() || err != nil {
+		return "", ERROR_NONE
+	}
+
+	var roleId int64
+	buff, _ := resp.Str()
+	if buff == "0" {
+		return "", ERROR_NONE
+	}
+
+	temp, _ := strconv.Atoi(buff)
+	roleId = int64(temp)
+
+	account := getAccount(roleId)
+	if account.roleId == 0 {
+		if err := account.init(); err != nil {
+			return "", ERROR_CREATE_ACCOUNT_FAIL
+		}
+		account.thirdpartToken = thirdpartToken
+		account.accountType = int32(from)
+	}
+
+	account.loginTime = Time()
+	account.save()
+
+	//返回登录凭据
+	loginToken, err1 := account.generateLoginToken(device)
+	if err1 != ERROR_NONE {
+		return "", err1
+	}
+
+	return loginToken, ERROR_NONE
+}
+
+func createAnonymousAccount() (string, string, errorCode) {
+	resp, err := redis.Cmd("INCR", anonymousAutoKey)
+	if err != nil {
+		return "", "", ERROR_DB
+	}
+
+	temp, _ := resp.Int64()
+	username := fmt.Sprintf(anonymousAccountName, temp)
+	password := MD5(fmt.Sprintf("%v", Rand(1, 2176782336)))
+
+	if err := enroll(username, password); err != ERROR_NONE {
+		return "", "", ERROR_DB
+	}
+
+	return username, password, ERROR_NONE
+}
+
+//创建账号
+func enroll(username, password string) errorCode {
+	if len(username) == 0 {
+		return ERROR_USERNAME_IS_EMPTY
+	}
+	if len(password) == 0 {
+		return ERROR_PASSWORD_IS_EMPTY
+	}
+
+	resp, err := redis.Cmd("SETNX", fmt.Sprintf(usernameKey, username), 0)
+	if err != nil {
+		return ERROR_UNKNOWN
+	}
+	if buff, _ := resp.Int(); buff == 0 {
+		return ERROR_USERNAME_IS_EXIST
+	}
+
+	account := &Account{}
+	if err := account.init(); err != nil {
+		return ERROR_CREATE_ACCOUNT_FAIL
+	}
+
+	account.username = username
+	account.password = MD5(fmt.Sprintf("%v%v", MD5(password), account.salt))
+	account.save()
+
+	if _, err := redis.Cmd("SET", fmt.Sprintf(usernameKey, username), account.roleId); err != nil {
+		return ERROR_UNKNOWN
+	}
+
+	return ERROR_NONE
+}
+
+//生成登录凭据
+func (this *Account) generateLoginToken(device string) (string, errorCode) {
+	//是否清除之前登录凭据?
+	loginToken := MD5(fmt.Sprintf("%v:%s:%s", this, Rand(1, 2176782336), device))
+
+	if _, err := redis.Cmd("SETEX", fmt.Sprintf(loginTokenKey, loginToken), tokenExpireTime, this.roleId); err != nil {
+		return "", ERROR_DB
+	}
+
+	if _, err := redis.Cmd("SETEX", fmt.Sprintf(accountTokenKey, this.roleId), tokenExpireTime, loginToken); err != nil {
+		return "", ERROR_DB
+	}
+
+	return loginToken, ERROR_NONE
+}
+
+func handlerCreateAccount(w http.ResponseWriter, r *http.Request) {
+	username, password, err := createAnonymousAccount()
+	fmt.Fprintf(w, responseAccountKey, int(err), username, password)
+}
+
+func handlerLogin(w http.ResponseWriter, r *http.Request) {
+	loginToken, err := login(r.PostFormValue("username"), r.PostFormValue("password"), r.PostFormValue("device"), r.RemoteAddr)
+	fmt.Fprintf(w, responseKey, int(err), loginToken)
+}
+
+func handlerThirdpartLogin(w http.ResponseWriter, r *http.Request) {
+	err := enroll(r.PostFormValue("username"), r.PostFormValue("password"))
+
+	from, _ := strconv.Atoi(r.PostFormValue("from"))
+
+	responseKey, err := thirdpartLogin(AccountType(from), r.PostFormValue("thirdpartToken"), r.PostFormValue("device"))
+	fmt.Fprintf(w, responseKey, int(err), "")
+}
+
+var redis *GxRedis = NewGxRedis()
+
+func main() {
+	defer utils.Stack()
+	listeningPort := flag.String("p", "8081", "listening port")
+	redisPath := flag.String("db", "192.168.1.220:6380", "redis path")
+	flag.Parse()
+
+	redis.Run(*redisPath)
+	//启动web服务
+	http.HandleFunc("/login", handlerLogin)
+	http.HandleFunc("/create", handlerCreateAccount)
+	http.NotFoundHandler()
+
+	fmt.Println("listening port: ", *listeningPort)
+	fmt.Println("connect to redis: ", *redisPath)
+
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", *listeningPort), nil))
+}

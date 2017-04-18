@@ -1,0 +1,675 @@
+package pvp
+
+import (
+	. "Gameserver/cache"
+	. "Gameserver/logic"
+	. "Gameserver/logic/rolestate"
+	"common"
+	"common/define"
+	"common/protocol"
+	"common/scheme"
+	"errors"
+	"fmt"
+	. "galaxy"
+	"math/rand"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/golang/protobuf/proto"
+)
+
+const (
+	cache_pvprank_key      = "PvpRank"
+	CachePvpmatchpoolKey   = "PvpMatchPool"
+	cache_pvprank_flag_key = "PvpRankFlag"
+	match_locktime         = 0
+	fight_locktime         = 5
+	db_cd                  = 5
+	top_rank_start         = 0
+	top_rank_end           = 49
+	myrank_step            = 20
+	pvpmatch_limit         = 5
+	cache_pvp_key_t        = "Role:%v:Pvp"
+)
+
+func parse_trophy_lv_to_sortindex(trophy int32, league_lv int32) int32 {
+	return trophy*100 + league_lv
+}
+
+func parse_sortindex_to_trophy_lv(sort_index int32) (int32, int32) {
+	return sort_index / 100, sort_index % 100
+}
+
+func parse_id_name_to_sortkey(role_uid int64, name string) string {
+	return fmt.Sprintf("%v:%v", role_uid, name)
+}
+
+func parse_sortkey_to_id_name(sort_key string) (int64, string) {
+	strs := strings.Split(sort_key, ":")
+	uid, _ := strconv.Atoi(strs[0])
+	name := strs[1]
+	return int64(uid), name
+}
+
+func genPvpCacheKey(role_uid int64) string {
+	return fmt.Sprintf(cache_pvp_key_t, role_uid)
+}
+
+type PvpSys struct {
+	PvpCache
+	owner       IRole
+	cache_key   string
+	query_cd    int64
+	rankinfo_cd int64
+	is_fight    bool
+	target_role IRolePvp
+	scheme_data *scheme.Pvp
+}
+
+func (this *PvpSys) Init(owner IRole) error {
+	this.owner = owner
+	scheme_data, has := scheme.Pvpmap[this.owner.GetLeagueLv()]
+	if !has {
+		return errors.New(fmt.Sprintf("PvpRank scheme error (%v)", this.owner.GetLeagueLv()))
+	}
+	this.scheme_data = scheme_data
+	this.PvpCache.FightHeroList = make([]int64, 0)
+	this.cache_key = genPvpCacheKey(this.owner.GetUid())
+
+	return nil
+}
+
+func (this *PvpSys) Load() error {
+	resp, err := GxService().Redis().Cmd("GET", this.cache_key)
+	if err != nil {
+		return err
+	}
+
+	if buf, _ := resp.Bytes(); buf != nil {
+		err = proto.Unmarshal(buf, &this.PvpCache)
+		if err != nil {
+			LogError(err)
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (this *PvpSys) Save() {
+	buf, err := proto.Marshal(&this.PvpCache)
+	if err != nil {
+		LogFatal(err)
+		return
+	}
+
+	if _, err := GxService().Redis().Cmd("SET", this.cache_key, buf); err != nil {
+		LogFatal(err)
+		return
+	}
+}
+
+func (this *PvpSys) fresh_query_cd() {
+	this.query_cd = time.Now().Unix()
+}
+
+func (this *PvpSys) is_query_cd() bool {
+	return this.query_cd > time.Now().Unix()
+}
+
+func (this *PvpSys) fresh_rankinfo_cd() {
+	this.rankinfo_cd = time.Now().Unix()
+}
+
+func (this *PvpSys) is_rankinfo_cd() bool {
+	return this.rankinfo_cd > time.Now().Unix()
+}
+
+func (this *PvpSys) PvpSetIsFight(is_fight bool) {
+	this.is_fight = is_fight
+}
+
+func (this *PvpSys) PvpIsFight() bool {
+	return this.is_fight
+}
+
+func (this *PvpSys) PvpFightHeroList() []int64 {
+	return this.PvpCache.FightHeroList
+}
+
+func (this *PvpSys) PvpQuery() (int32, common.RetCode) {
+	if this.is_query_cd() {
+		return -1, common.RetCode_CD
+	}
+
+	resp, err := GxService().Redis().Cmd("ZREVRANK", cache_pvprank_key, parse_id_name_to_sortkey(this.owner.GetUid(), this.owner.GetNickname()))
+	if err != nil {
+		LogError(err)
+		return -1, common.RetCode_Redis_Error
+	}
+
+	rank, err := resp.Int()
+	if err != nil {
+		LogError(err)
+		return -1, common.RetCode_Redis_Error
+	}
+
+	this.fresh_query_cd()
+	return int32(rank), common.RetCode_Success
+}
+
+func (this *PvpSys) PvpRankInfo() (int32, []*protocol.PvpRankInfo, []*protocol.PvpRankInfo, common.RetCode) {
+	if this.is_rankinfo_cd() {
+		return -1, nil, nil, common.RetCode_CD
+	}
+
+	resp, err := GxService().Redis().Cmd("ZREVRANGE", cache_pvprank_key, top_rank_start, top_rank_end, "WITHSCORES")
+	if err != nil {
+		LogError(err)
+		return -1, nil, nil, common.RetCode_Redis_Error
+	}
+
+	top_rank_str, err := resp.List()
+	if err != nil {
+		LogError(err)
+		return -1, nil, nil, common.RetCode_Redis_Error
+	}
+
+	var top_rank []*protocol.PvpRankInfo
+	if top_rank_str != nil && len(top_rank_str) != 0 {
+		top_rank = make([]*protocol.PvpRankInfo, len(top_rank_str)/2)
+		for i := 0; i < len(top_rank_str); i = i + 2 {
+			uid, name := parse_sortkey_to_id_name(top_rank_str[i])
+			value, _ := strconv.Atoi(top_rank_str[i+1])
+			trophy, lv := parse_sortindex_to_trophy_lv(int32(value))
+			top_rank[i/2] = &protocol.PvpRankInfo{
+				Rank:     proto.Int32(int32(i / 2)),
+				RoleUid:  proto.Int64(uid),
+				Name:     proto.String(name),
+				LeagueLv: proto.Int32(lv),
+				Trophy:   proto.Int32(trophy),
+			}
+		}
+	}
+
+	resp, err = GxService().Redis().Cmd("ZREVRANK", cache_pvprank_key, parse_id_name_to_sortkey(this.owner.GetUid(), this.owner.GetNickname()))
+	if err != nil {
+		LogError(err)
+		return -1, nil, nil, common.RetCode_Redis_Error
+	}
+
+	my_rank, err := resp.Int()
+	if err != nil {
+		LogInfo(err)
+		return -1, nil, top_rank, common.RetCode_Success
+	}
+
+	my_rank_start := my_rank - myrank_step
+	if my_rank_start < 0 {
+		my_rank_start = 0
+	}
+	my_rank_end := my_rank + myrank_step
+
+	resp, err = GxService().Redis().Cmd("ZREVRANGE", cache_pvprank_key, my_rank_start, my_rank_end, "WITHSCORES")
+	if err != nil {
+		LogError(err)
+		return -1, nil, nil, common.RetCode_Redis_Error
+	}
+
+	my_rank_str, err := resp.List()
+	if err != nil {
+		LogError(err)
+		return -1, nil, nil, common.RetCode_Redis_Error
+	}
+
+	var my_rank_info []*protocol.PvpRankInfo
+	if my_rank_str != nil && len(my_rank_str) != 0 {
+		my_rank_info = make([]*protocol.PvpRankInfo, len(my_rank_str)/2)
+		rank_index := my_rank_start
+		for i := 0; i < len(my_rank_str); i = i + 2 {
+			uid, name := parse_sortkey_to_id_name(my_rank_str[i])
+			value, _ := strconv.Atoi(my_rank_str[i+1])
+			trophy, lv := parse_sortindex_to_trophy_lv(int32(value))
+			my_rank_info[i/2] = &protocol.PvpRankInfo{
+				Rank:     proto.Int32(int32(rank_index)),
+				RoleUid:  proto.Int64(uid),
+				Name:     proto.String(name),
+				LeagueLv: proto.Int32(lv),
+				Trophy:   proto.Int32(trophy),
+			}
+			rank_index++
+		}
+	}
+
+	this.fresh_rankinfo_cd()
+	return int32(my_rank), my_rank_info, top_rank, common.RetCode_Success
+}
+
+func (this *PvpSys) PvpPrepare(fight_hero_list []int64) common.RetCode {
+	if fight_hero_list == nil || len(fight_hero_list) == 0 {
+		return common.RetCode_PvpPrepareArgsError
+	}
+
+	for _, uid := range fight_hero_list {
+		if !this.owner.HeroFind(uid) {
+			return common.RetCode_HeroNotFound
+		}
+	}
+
+	this.PvpCache.FightHeroList = fight_hero_list
+	this.Save()
+
+	_, err := GxService().Redis().Cmd("ZADD", CachePvpmatchpoolKey, this.owner.GetTrophy(), this.owner.GetUid())
+	if err != nil {
+		LogError(err)
+	}
+
+	return common.RetCode_Success
+}
+
+func (this *PvpSys) PvpMatch() *protocol.MsgPvpMatchRet {
+	if len(this.PvpCache.FightHeroList) == 0 {
+		LogDebug("PvpMatch owner herolist empty AtkUid : ", this.owner.GetUid())
+		return &protocol.MsgPvpMatchRet{
+			Retcode: proto.Int32(int32(common.RetCode_PvpMatchFightListEmpty)),
+		}
+	}
+
+	owner_role_state, err := NewRoleState(this.owner.GetUid())
+	if err != nil {
+		LogError(err)
+		return &protocol.MsgPvpMatchRet{
+			Retcode: proto.Int32(int32(common.RetCode_PvpMatchRoleStateError)),
+		}
+	}
+
+	if owner_role_state.IsFightLock() {
+		LogDebug("PvpMatch IsSelfLocked AtkUid : ", this.owner.GetUid())
+		return &protocol.MsgPvpMatchRet{
+			Retcode: proto.Int32(int32(common.RetCode_PvpMatchLockedSelf)),
+		}
+	}
+
+	if !this.owner.IsEnoughBlood(this.owner.GetPvpSearchNeedBlood()) {
+		LogDebug("PvpMatch IsNotEnoughBlood AtkUid : ", this.owner.GetUid())
+		return &protocol.MsgPvpMatchRet{
+			Retcode: proto.Int32(int32(common.RetCode_RoleNotEnoughBlood)),
+		}
+	}
+
+	if !this.owner.IsEnoughSpirit(scheme.Commonmap[define.PvpCostSpirit].Value) {
+		LogDebug("PvpMatch IsNotEnoughSpirit AtkUid : ", this.owner.GetUid())
+		return &protocol.MsgPvpMatchRet{
+			Retcode: proto.Int32(int32(common.RetCode_RoleNotEnoughSpirit)),
+		}
+	}
+
+	//匹配
+	for i := 0; i < pvpmatch_limit; i++ {
+		match_trophy_start := this.owner.GetTrophy() - scheme.Commonmap[define.TrophyMatching].Value*(int32(i+1))
+		if match_trophy_start < 0 {
+			match_trophy_start = 0
+		}
+		match_trophy_end := this.owner.GetTrophy() + scheme.Commonmap[define.TrophyMatching].Value*(int32(i+1))
+
+		LogDebug("PvpMatch Match Index Start : ", match_trophy_start, " End : ", match_trophy_end, " AtkUid : ", this.owner.GetUid())
+
+		resp, err := GxService().Redis().Cmd("ZREVRANGE", CachePvpmatchpoolKey, match_trophy_start, match_trophy_end)
+		if err != nil {
+			LogError(err)
+			return &protocol.MsgPvpMatchRet{
+				Retcode: proto.Int32(int32(common.RetCode_Redis_Error)),
+			}
+		}
+
+		resp_str, err := resp.List()
+		if err != nil {
+			LogError(err)
+			return &protocol.MsgPvpMatchRet{
+				Retcode: proto.Int32(int32(common.RetCode_Redis_Error)),
+			}
+		}
+
+		if resp_str != nil && len(resp_str) > 0 {
+			random := rand.New(rand.NewSource(time.Now().UnixNano()))
+			for j := 0; j < pvpmatch_limit; j++ {
+				num := random.Int31n(int32(len(resp_str)))
+				uid, _ := strconv.Atoi(resp_str[num])
+				if int64(uid) == this.owner.GetUid() {
+					LogDebug("PvpMatch target isSelf Uid : ", uid)
+					continue
+				}
+
+				role_state, err := NewRoleState(int64(uid))
+				if err != nil {
+					LogError(err)
+					continue
+				}
+
+				if role_state.GetOnlineServer() != 0 || role_state.IsFightLock() {
+					LogDebug("PvpMatch target isOnline or isFightLock Uid : ", uid)
+					continue
+				}
+
+				target_role := this.owner.OfflineRolePvp(int64(uid))
+				if target_role == nil || target_role.IsShield() || len(target_role.PvpFightHeroList()) == 0 {
+					LogDebug("PvpMatch target isShield or heroList empty", len(target_role.PvpFightHeroList()), " Uid : ", uid)
+					continue
+				}
+
+				role_state.SetFightLock(time.Now().Unix()+match_locktime, true)
+				this.target_role = target_role
+				this.owner.CostBlood(this.owner.GetPvpSearchNeedBlood(), true, true)
+				return this.target_role.PvpFillFightInfo()
+			}
+		}
+	}
+
+	LogDebug("PvpMatch nothing")
+	return &protocol.MsgPvpMatchRet{
+		Retcode: proto.Int32(int32(common.RetCode_Failed)),
+	}
+}
+
+func (this *PvpSys) PvpMatchById(uid int64) *protocol.MsgPvpMatchRet {
+	if len(this.PvpCache.FightHeroList) == 0 {
+		return &protocol.MsgPvpMatchRet{
+			Retcode: proto.Int32(int32(common.RetCode_PvpMatchFightListEmpty)),
+		}
+	}
+
+	owner_role_state, err := NewRoleState(this.owner.GetUid())
+	if err != nil {
+		LogError(err)
+		return &protocol.MsgPvpMatchRet{
+			Retcode: proto.Int32(int32(common.RetCode_PvpMatchRoleStateError)),
+		}
+	}
+
+	if owner_role_state.IsFightLock() {
+		return &protocol.MsgPvpMatchRet{
+			Retcode: proto.Int32(int32(common.RetCode_PvpMatchLockedSelf)),
+		}
+	}
+
+	role_state, err := NewRoleState(int64(uid))
+	if err != nil {
+		LogError(err)
+		return &protocol.MsgPvpMatchRet{
+			Retcode: proto.Int32(int32(common.RetCode_PvpMatchRoleStateError)),
+		}
+	}
+
+	if role_state.GetOnlineServer() != 0 || role_state.IsFightLock() {
+		return &protocol.MsgPvpMatchRet{
+			Retcode: proto.Int32(int32(common.RetCode_PvpMatchLockedOrOnlineTarget)),
+		}
+	}
+
+	target_role := this.owner.OfflineRolePvp(int64(uid))
+	if target_role == nil {
+		return &protocol.MsgPvpMatchRet{
+			Retcode: proto.Int32(int32(common.RetCode_Failed)),
+		}
+	}
+
+	if target_role.IsShield() {
+		return &protocol.MsgPvpMatchRet{
+			Retcode: proto.Int32(int32(common.RetCode_PvpMatchIsShieldTarget)),
+		}
+	}
+
+	if len(target_role.PvpFightHeroList()) == 0 {
+		return &protocol.MsgPvpMatchRet{
+			Retcode: proto.Int32(int32(common.RetCode_PvpMatchFightListEmptyTarget)),
+		}
+	}
+
+	role_state.SetFightLock(time.Now().Unix()+match_locktime, true)
+	this.target_role = target_role
+	return this.target_role.PvpFillFightInfo()
+}
+
+func (this *PvpSys) PvpStart() common.RetCode {
+	if this.target_role == nil {
+		return common.RetCode_Failed
+	}
+
+	this.owner.CostSpirit(scheme.Commonmap[define.PvpCostSpirit].Value, true, false)
+	this.owner.AddExp(scheme.Commonmap[define.PvpLeastExp].Value, true, true)
+
+	role_state, err := NewRoleState(int64(this.target_role.GetUid()))
+	if err != nil {
+		LogError(err)
+		return common.RetCode_PvpMatchRoleStateError
+	}
+
+	role_state.SetFightLock(time.Now().Unix()+fight_locktime, true)
+	this.PvpSetIsFight(true)
+
+	return common.RetCode_Success
+}
+
+func (this *PvpSys) PvpGiveUp() (common.RetCode, int32, int32) {
+	if this.target_role == nil || !this.PvpIsFight() {
+		return common.RetCode_Failed, 0, 0
+	}
+
+	var trophy_ret int32
+	var stone_ret int32
+
+	this.owner.AddStone(this.scheme_data.RewardStoneLose, true, false)
+	stone_ret = this.scheme_data.RewardStoneLose
+	if this.owner.GetTrophy() <= scheme.Commonmap[define.TrophyProtectLine].Value {
+		trophy_delta := this.owner.GetTrophy() - this.target_role.GetTrophy()
+		if trophy_delta < 0 {
+			trophy_delta = -trophy_delta
+		}
+		attack_trophy := trophy_delta/scheme.Commonmap[define.LineDownTrophyFailureParam1].Value + scheme.Commonmap[define.LineDownTrophyFailureParam2].Value
+		this.owner.SubTrophy(attack_trophy, true, true)
+		trophy_ret = -attack_trophy
+	} else {
+		trophy_delta := this.owner.GetTrophy() - this.target_role.GetTrophy()
+		if trophy_delta < 0 {
+			trophy_delta = -trophy_delta
+		}
+		attack_trophy := trophy_delta/scheme.Commonmap[define.LineUpTrophyFailureParam1].Value + scheme.Commonmap[define.LineUpTrophyFailureParam2].Value
+		this.owner.SubTrophy(attack_trophy, true, true)
+		trophy_ret = -attack_trophy
+	}
+
+	if this.owner.GetTrophy() < this.scheme_data.LvUpTrophy {
+		new_lv := this.owner.GetLeagueLv() - 1
+		if new_lv < 1 {
+			new_lv = 1
+		}
+		if new_lv >= 1 {
+			if temp, has := scheme.Pvpmap[new_lv]; has {
+				this.owner.SetLeagueLv(new_lv, true, true)
+				this.scheme_data = temp
+			} else {
+				LogError("PvpMap scheme error lv:", new_lv)
+			}
+		}
+	}
+
+	_, err := GxService().Redis().Cmd("ZADD", cache_pvprank_key, parse_trophy_lv_to_sortindex(this.owner.GetTrophy(), this.owner.GetLeagueLv()), parse_id_name_to_sortkey(this.owner.GetUid(), this.owner.GetNickname()))
+	if err != nil {
+		LogError(err)
+	}
+
+	this.PvpSetIsFight(false)
+	this.target_role = nil
+	return common.RetCode_Success, trophy_ret, stone_ret
+}
+
+func (this *PvpSys) PvpFinish(req *protocol.MsgPvpFinishReq) (common.RetCode, int32, int32) {
+	if this.target_role == nil || !this.PvpIsFight() {
+		return common.RetCode_Failed, 0, 0
+	}
+
+	var trophy_ret int32
+	var stone_ret int32
+
+	if req.GetIsWin() {
+		this.owner.AddExp(scheme.Commonmap[define.PvpVictoryExp].Value, true, false)
+		this.owner.AddStone(this.scheme_data.RewardStoneWin, true, false)
+		stone_ret = this.scheme_data.RewardStoneWin
+		if this.owner.GetTrophy() <= scheme.Commonmap[define.TrophyProtectLine].Value {
+			trophy_delta := this.owner.GetTrophy() - this.target_role.GetTrophy()
+			if trophy_delta < 0 {
+				trophy_delta = -trophy_delta
+			}
+			attack_trophy := trophy_delta/scheme.Commonmap[define.LineDownTrophyVictoryParam1].Value + scheme.Commonmap[define.LineDownTrophyVictoryParam2].Value
+			defence_trophy := attack_trophy * scheme.Commonmap[define.TrophyProtectParam].Value / 100
+			this.owner.AddTrophy(attack_trophy, true, true)
+			this.target_role.SubTrophy(defence_trophy, true, true)
+			trophy_ret = attack_trophy
+		} else {
+			trophy_delta := this.owner.GetTrophy() - this.target_role.GetTrophy()
+			if trophy_delta < 0 {
+				trophy_delta = -trophy_delta
+			}
+			attack_trophy := trophy_delta/scheme.Commonmap[define.LineUpTrophyVictoryParam1].Value + scheme.Commonmap[define.LineUpTrophyVictoryParam2].Value
+			defence_trophy := attack_trophy
+			this.owner.AddTrophy(attack_trophy, true, true)
+			this.target_role.SubTrophy(defence_trophy, true, true)
+			trophy_ret = attack_trophy
+		}
+
+		target_scheme, has := scheme.Pvpmap[this.target_role.GetLeagueLv()]
+		if has {
+			if this.target_role.GetTrophy() < target_scheme.LvDownTrophy {
+				new_lv := this.target_role.GetLeagueLv() - 1
+				if new_lv < 1 {
+					new_lv = 1
+				}
+				if new_lv >= 1 {
+					if _, has := scheme.Pvpmap[new_lv]; has {
+						this.target_role.SetLeagueLv(new_lv, true, true)
+					} else {
+						LogError("PvpMap scheme error lv:", new_lv)
+					}
+				}
+			}
+		}
+
+		if this.owner.GetTrophy() > this.scheme_data.LvUpTrophy {
+			new_lv := this.owner.GetLeagueLv() + 1
+			if temp, has := scheme.Pvpmap[new_lv]; has {
+				this.owner.SetLeagueLv(new_lv, true, true)
+				this.scheme_data = temp
+			} else {
+				LogError("PvpMap scheme error lv:", new_lv)
+			}
+		}
+
+		_, err := GxService().Redis().Cmd("ZADD", cache_pvprank_key, parse_trophy_lv_to_sortindex(this.target_role.GetTrophy(), this.target_role.GetLeagueLv()), parse_id_name_to_sortkey(this.target_role.GetUid(), this.target_role.GetNickname()))
+		if err != nil {
+			LogError(err)
+		}
+
+		_, err = GxService().Redis().Cmd("ZADD", cache_pvprank_key, parse_trophy_lv_to_sortindex(this.owner.GetTrophy(), this.owner.GetLeagueLv()), parse_id_name_to_sortkey(this.owner.GetUid(), this.owner.GetNickname()))
+		if err != nil {
+			LogError(err)
+		}
+	} else {
+		this.owner.AddStone(this.scheme_data.RewardStoneLose, true, false)
+		stone_ret = this.scheme_data.RewardStoneLose
+		if this.owner.GetTrophy() <= scheme.Commonmap[define.TrophyProtectLine].Value {
+			trophy_delta := this.owner.GetTrophy() - this.target_role.GetTrophy()
+			if trophy_delta < 0 {
+				trophy_delta = -trophy_delta
+			}
+			attack_trophy := trophy_delta/scheme.Commonmap[define.LineDownTrophyFailureParam1].Value + scheme.Commonmap[define.LineDownTrophyFailureParam2].Value
+			this.owner.SubTrophy(attack_trophy, true, true)
+			trophy_ret = -attack_trophy
+		} else {
+			trophy_delta := this.owner.GetTrophy() - this.target_role.GetTrophy()
+			if trophy_delta < 0 {
+				trophy_delta = -trophy_delta
+			}
+			attack_trophy := trophy_delta/scheme.Commonmap[define.LineUpTrophyFailureParam1].Value + scheme.Commonmap[define.LineUpTrophyFailureParam2].Value
+			this.owner.SubTrophy(attack_trophy, true, true)
+			trophy_ret = -attack_trophy
+		}
+
+		if this.owner.GetTrophy() < this.scheme_data.LvUpTrophy {
+			new_lv := this.owner.GetLeagueLv() - 1
+			if new_lv < 1 {
+				new_lv = 1
+			}
+			if new_lv >= 1 {
+				if temp, has := scheme.Pvpmap[new_lv]; has {
+					this.owner.SetLeagueLv(new_lv, true, true)
+					this.scheme_data = temp
+				} else {
+					LogError("PvpMap scheme error lv:", new_lv)
+				}
+			}
+		}
+
+		_, err := GxService().Redis().Cmd("ZADD", cache_pvprank_key, parse_trophy_lv_to_sortindex(this.owner.GetTrophy(), this.owner.GetLeagueLv()), parse_id_name_to_sortkey(this.owner.GetUid(), this.owner.GetNickname()))
+		if err != nil {
+			LogError(err)
+		}
+	}
+
+	this.PvpSetIsFight(false)
+	this.target_role = nil
+	//完成任务
+	this.owner.MissionAddNum(11, 1, 0)
+
+	return common.RetCode_Success, trophy_ret, stone_ret
+}
+
+//func (this *PvpSys) fixPvpResource(blood int32, soul int32) (int32, int32) {
+//	target_kinglv := this.target_role.GetKingLv()
+//	switch {
+//	case target_kinglv >= 1 && target_kinglv < 10:
+//		if blood > scheme.Commonmap[define.BloodCanPlunderParam1].Value {
+//			blood = scheme.Commonmap[define.BloodCanPlunderParam1].Value
+//		}
+//		if soul > scheme.Commonmap[define.BloodCanPlunderParam1].Value {
+//			soul = scheme.Commonmap[define.BloodCanPlunderParam1].Value
+//		}
+//	case target_kinglv >= 10 && target_kinglv < 20:
+//		if blood > scheme.Commonmap[define.BloodCanPlunderParam2].Value {
+//			blood = scheme.Commonmap[define.BloodCanPlunderParam2].Value
+//		}
+//		if soul > scheme.Commonmap[define.SoulCanPlunderParam2].Value {
+//			soul = scheme.Commonmap[define.SoulCanPlunderParam2].Value
+//		}
+//	case target_kinglv >= 20 && target_kinglv < 30:
+//		if blood > scheme.Commonmap[define.BloodCanPlunderParam3].Value {
+//			blood = scheme.Commonmap[define.BloodCanPlunderParam3].Value
+//		}
+//		if soul > scheme.Commonmap[define.SoulCanPlunderParam3].Value {
+//			soul = scheme.Commonmap[define.SoulCanPlunderParam3].Value
+//		}
+//	case target_kinglv >= 30 && target_kinglv < 40:
+//		if blood > scheme.Commonmap[define.BloodCanPlunderParam4].Value {
+//			blood = scheme.Commonmap[define.BloodCanPlunderParam4].Value
+//		}
+//		if soul > scheme.Commonmap[define.SoulCanPlunderParam4].Value {
+//			soul = scheme.Commonmap[define.SoulCanPlunderParam4].Value
+//		}
+//	case target_kinglv >= 40 && target_kinglv < 50:
+//		if blood > scheme.Commonmap[define.BloodCanPlunderParam5].Value {
+//			blood = scheme.Commonmap[define.BloodCanPlunderParam5].Value
+//		}
+//		if soul > scheme.Commonmap[define.SoulCanPlunderParam5].Value {
+//			soul = scheme.Commonmap[define.SoulCanPlunderParam5].Value
+//		}
+//	case target_kinglv >= 50 && target_kinglv <= 60:
+//		if blood > scheme.Commonmap[define.BloodCanPlunderParam6].Value {
+//			blood = scheme.Commonmap[define.BloodCanPlunderParam6].Value
+//		}
+//		if soul > scheme.Commonmap[define.SoulCanPlunderParam6].Value {
+//			soul = scheme.Commonmap[define.SoulCanPlunderParam6].Value
+//		}
+//	}
+
+//	return blood, soul
+//}

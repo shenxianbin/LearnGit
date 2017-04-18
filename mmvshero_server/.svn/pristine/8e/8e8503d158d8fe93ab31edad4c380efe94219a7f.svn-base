@@ -1,0 +1,9 @@
+syntax="proto2";
+
+package cache;
+
+message DecorationCache
+{
+	required int32 scheme_id = 1;
+	required int32 num = 2;
+}

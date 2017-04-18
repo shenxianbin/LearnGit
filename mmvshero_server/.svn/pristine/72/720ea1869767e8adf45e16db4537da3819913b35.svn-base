@@ -1,0 +1,43 @@
+syntax="proto2";
+
+package cache;
+
+message PlunderHeroSkill
+{
+	required int32 skill_id = 1;
+	required int32 skill_lv = 2;
+}
+
+message PlunderAward
+{
+	required int32 type = 1;
+	required int32 code = 2;
+	required int32 amount = 3;
+}
+
+message PlunderHero
+{
+	required int64 uid = 1;
+	required int32 scheme_id = 2;
+	required int32 lv = 3;
+	required int32 stage = 4;
+	required int32 rank = 5;
+	map<int32,PlunderHeroSkill> skill_list = 6;
+	repeated int32 properties = 7;
+}
+
+message PlunderTeamCache
+{
+	required int32 pos = 1;
+	required int64 team_id = 2;
+	required int64 role_uid = 3;
+	required string role_name = 4;
+	required int32 role_lv = 5;
+	repeated PlunderHero heros = 6;
+	required int64 start_time = 7;
+	repeated PlunderAward least_award = 8;
+	repeated PlunderAward more_award = 9;
+	required bool sheild = 10;
+	required int64 lock_time = 11;
+	repeated int64 report_ids = 12;
+}

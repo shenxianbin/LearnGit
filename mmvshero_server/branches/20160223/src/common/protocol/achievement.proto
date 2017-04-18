@@ -1,0 +1,42 @@
+syntax = "proto2";
+package protocol;
+
+message Achievement{
+	required int32	schemeId 		= 1;//scheme id
+	required int32	reachedNum  	= 2;//达成数量
+	required int32  finishLevel		= 3;//已经完成的任务，领取的奖励级别
+	required int32  realFinishLevel = 4;//实际已经完成的级别
+}
+
+message MsgAchievementAllReq{
+
+}
+
+message MsgAchievementAllRet{
+	repeated Achievement achievements = 1;
+}
+
+//增加成就达成的数量
+message MsgAchievementAddNumReq{
+	required int32 schemeId = 1;
+	required int32 num = 2;
+	required bool isRepace = 3;
+}
+message MsgAchievementAddNumRet{
+	required int32 retCode = 1;
+	required int32 reachedNum = 2;//更新后达成的数量，如果这个任务可用
+}
+
+//成就完成，领取奖励
+message MsgAchievementFinishReq{
+	required int32 schemeId = 1;
+}
+
+message MsgAchievementFinishRet{
+	required int32 retCode = 1;
+}
+
+//成就达成通知
+message MsgAchievementNotifyRet{
+	required Achievement achievement = 1;
+}

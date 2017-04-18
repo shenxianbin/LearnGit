@@ -1,0 +1,700 @@
+package building
+
+import (
+	. "Gameserver/cache"
+	"Gameserver/global"
+	. "Gameserver/logic"
+	"common"
+	"common/define"
+	"common/protocol"
+	"common/scheme"
+	"common/static"
+	"errors"
+	"fmt"
+	. "galaxy"
+	"time"
+
+	"github.com/golang/protobuf/proto"
+)
+
+const (
+	cache_building_autokey_t        = "Role:%v:BuildingAutoKey"
+	cache_buildinglist_key_template = "Role:%v:Building"
+	cache_buildingobj_key_template  = "Role:%v:Building:%v"
+)
+
+func GenBuildingListKey(role_uid int64) string {
+	return fmt.Sprintf(cache_buildinglist_key_template, role_uid)
+}
+
+func genBuildingCacheKey(role_uid int64, building_uid int64) string {
+	return fmt.Sprintf(cache_buildingobj_key_template, role_uid, building_uid)
+}
+
+func genBuildingAutoKey(role_uid int64) string {
+	return fmt.Sprintf(cache_building_autokey_t, role_uid)
+}
+
+type Building struct {
+	BuildingCache
+	scheme_base_data *scheme.Building
+	scheme_lvup_data *scheme.BuildingLvUp
+}
+
+func (this *BuildingSys) BuildingGetQueueUid() int64 {
+	return this.queueUid
+}
+
+func NewBuilding(scheme_id int32, lv int32, role_uid int64) (*Building, error) {
+	scheme_base_data, has := scheme.Buildingmap[scheme_id]
+	if !has {
+		return nil, errors.New("NewBuilding Base Scheme Error")
+	}
+
+	scheme_lvup_data := scheme.BuildingLvUpGet(scheme_id, lv)
+	if scheme_lvup_data == nil {
+		return nil, errors.New("NewBuilding Lvup Scheme Error")
+	}
+
+	obj := new(Building)
+	resp, err := GxService().Redis().Cmd("INCR", genBuildingAutoKey(role_uid))
+	if err != nil {
+		return nil, err
+	}
+
+	uid, _ := resp.Int64()
+	obj.BuildingCache.SetUid(uid)
+	obj.BuildingCache.SetSchemeId(scheme_id)
+	obj.BuildingCache.SetLv(lv)
+	obj.BuildingCache.SetBuildTimestamp(0)
+	obj.BuildingCache.SetCollectTimestamp(0)
+	obj.scheme_base_data = scheme_base_data
+	obj.scheme_lvup_data = scheme_lvup_data
+
+	return obj, nil
+}
+
+func LoadBuilding(buf []byte) (*Building, error) {
+	obj := new(Building)
+	err := proto.Unmarshal(buf, &obj.BuildingCache)
+	if err != nil {
+		return nil, err
+	}
+
+	scheme_base_data, has := scheme.Buildingmap[obj.GetSchemeId()]
+	if !has {
+		return nil, errors.New("NewBuilding Base Scheme Error")
+	}
+
+	scheme_lvup_data := scheme.BuildingLvUpGet(obj.GetSchemeId(), obj.GetLv())
+	if scheme_lvup_data == nil {
+		return nil, errors.New("Load Building Scheme Error")
+	}
+
+	obj.scheme_base_data = scheme_base_data
+	obj.scheme_lvup_data = scheme_lvup_data
+	return obj, nil
+}
+
+func (this *Building) GetBloodMax() int32 {
+	return this.scheme_lvup_data.BloodMax
+}
+
+func (this *Building) GetBloodOutput() int32 {
+	return this.scheme_lvup_data.BloodOutput
+}
+
+func (this *Building) GetBloodOutputInterval() int32 {
+	return this.scheme_lvup_data.BloodOutputInterval
+}
+
+func (this *Building) GetBloodOutputMax() int32 {
+	return this.scheme_lvup_data.BloodOutputMax
+}
+
+func (this *Building) GetSoulMax() int32 {
+	return this.scheme_lvup_data.SoulMax
+}
+
+func (this *Building) GetSoulOutput() int32 {
+	return this.scheme_lvup_data.SoulOutput
+}
+
+func (this *Building) GetSoulOutputInterval() int32 {
+	return this.scheme_lvup_data.SoulOutputInterval
+}
+
+func (this *Building) GetSoulOutputMax() int32 {
+	return this.scheme_lvup_data.SoulOutputMax
+}
+
+func (this *Building) GetLvUpBlood() int32 {
+	return this.scheme_lvup_data.LvUpBlood
+}
+
+func (this *Building) GetLvUpSoul() int32 {
+	return this.scheme_lvup_data.LvUpSoul
+}
+
+func (this *Building) GetLvUpTime() int32 {
+	return this.scheme_lvup_data.LvUpTime
+}
+
+func (this *Building) GetLvUpKingLv() int32 {
+	return this.scheme_lvup_data.LvUpKingLv
+}
+
+func (this *Building) FillBuildInfo() *protocol.BuildingInfo {
+	msg := new(protocol.BuildingInfo)
+	msg.SetUid(this.BuildingCache.GetUid())
+	msg.SetSchemeId(this.BuildingCache.GetSchemeId())
+	msg.SetLv(this.BuildingCache.GetLv())
+	msg.SetCollectTimestamp(this.BuildingCache.GetCollectTimestamp())
+	msg.SetBuildTimestamp(this.BuildingCache.GetBuildTimestamp())
+	return msg
+}
+
+func (this *Building) StartProduct() {
+	if this.scheme_lvup_data.BloodOutput != 0 || this.scheme_lvup_data.SoulOutput != 0 {
+		this.BuildingCache.SetCollectTimestamp(Time())
+	}
+}
+
+func (this *Building) CalResourceByCollect() (blood int32, soul int32) {
+	if this.BuildingCache.GetCollectTimestamp() == 0 {
+		return 0, 0
+	}
+
+	if this.BuildingCache.GetBuildTimestamp() != 0 {
+		return 0, 0
+	}
+
+	now := Time()
+	delta := now - this.BuildingCache.GetCollectTimestamp()
+	this.BuildingCache.SetCollectTimestamp(now)
+
+	if this.scheme_lvup_data.BloodOutputInterval > 0 {
+		blood = int32(delta / int64(this.scheme_lvup_data.BloodOutputInterval) * int64(this.scheme_lvup_data.BloodOutput))
+		if blood >= this.scheme_lvup_data.BloodOutputMax {
+			blood = this.scheme_lvup_data.BloodOutputMax
+		}
+	}
+
+	if this.scheme_lvup_data.SoulOutputInterval > 0 {
+		soul = int32(delta / int64(this.scheme_lvup_data.SoulOutputInterval) * int64(this.scheme_lvup_data.SoulOutput))
+		if soul >= this.scheme_lvup_data.SoulOutputMax {
+			soul = this.scheme_lvup_data.SoulOutputMax
+		}
+	}
+
+	return
+}
+
+func (this *Building) CalResourceByFight() int32 {
+	if this.BuildingCache.GetCollectTimestamp() == 0 {
+		return 0
+	}
+
+	if this.BuildingCache.GetBuildTimestamp() != 0 {
+		return 0
+	}
+
+	var resource int32
+	delta := Time() - this.BuildingCache.GetCollectTimestamp()
+	if this.scheme_lvup_data.BloodOutputInterval != 0 && this.scheme_lvup_data.BloodOutput != 0 {
+		resource = int32(delta / int64(this.scheme_lvup_data.BloodOutputInterval) * int64(this.scheme_lvup_data.BloodOutput))
+		if resource >= this.scheme_lvup_data.BloodOutputMax {
+			resource = this.scheme_lvup_data.BloodOutputMax
+		}
+	}
+
+	if this.scheme_lvup_data.SoulOutputInterval != 0 && this.scheme_lvup_data.SoulOutput != 0 {
+		resource = int32(delta / int64(this.scheme_lvup_data.SoulOutputInterval) * int64(this.scheme_lvup_data.SoulOutput))
+		if resource >= this.scheme_lvup_data.SoulOutputMax {
+			resource = this.scheme_lvup_data.SoulOutputMax
+		}
+	}
+
+	return resource
+}
+
+type BuildingSys struct {
+	owner          IRole
+	building_list  map[int64]*Building
+	cache_list_key string
+	queueUid       int64
+}
+
+func (this *BuildingSys) Init(owner IRole) {
+	this.owner = owner
+	this.building_list = make(map[int64]*Building)
+	this.cache_list_key = fmt.Sprintf(cache_buildinglist_key_template, this.owner.GetUid())
+}
+
+func (this *BuildingSys) Load() error {
+	resp, err := GxService().Redis().Cmd("SMEMBERS", this.cache_list_key)
+	if err != nil {
+		return err
+	}
+
+	cacheKeys, err := resp.List()
+	if err != nil {
+		return err
+	}
+
+	for _, key := range cacheKeys {
+		resp, err := GxService().Redis().Cmd("GET", key)
+		if err != nil {
+			GxService().Redis().Cmd("SREM", this.cache_list_key, key)
+			continue
+		}
+
+		if buf, _ := resp.Bytes(); buf != nil {
+			building, err := LoadBuilding(buf)
+			if err != nil {
+				continue
+			}
+			this.building_list[building.GetUid()] = building
+
+			if building.GetBuildTimestamp() > 0 {
+				this.queueUid = building.GetUid()
+				LogDebug("queueUid = : ", building.GetUid(), building.GetSchemeId())
+			}
+		}
+	}
+
+	// LogDebug("load:", this.building_list)
+	return nil
+}
+
+func (this *BuildingSys) Save(building *Building) {
+	buf, err := proto.Marshal(&building.BuildingCache)
+	if err != nil {
+		LogFatal(err)
+		return
+	}
+
+	key := genBuildingCacheKey(this.owner.GetUid(), building.BuildingCache.GetUid())
+	if _, err := GxService().Redis().Cmd("SET", key, buf); err != nil {
+		LogFatal(err)
+		return
+	}
+
+	if _, err := GxService().Redis().Cmd("SADD", this.cache_list_key, key); err != nil {
+		LogFatal(err)
+		return
+	}
+}
+
+func (this *BuildingSys) GetMaxBlood() int64 {
+	var value int64
+	for _, v := range this.building_list {
+		value += int64(v.GetBloodMax())
+	}
+	return value
+}
+
+func (this *BuildingSys) GetMaxSoul() int64 {
+	var value int64
+	for _, v := range this.building_list {
+		value += int64(v.GetSoulMax())
+	}
+	return value
+}
+
+func (this *BuildingSys) FillBuildingListInfo() *protocol.BuildingListInfo {
+	msg := new(protocol.BuildingListInfo)
+	msg.BuildList = make([]*protocol.BuildingInfo, len(this.building_list))
+	index := 0
+	for _, v := range this.building_list {
+		msg.BuildList[index] = v.FillBuildInfo()
+		index++
+	}
+	return msg
+}
+
+func (this *BuildingSys) FillBuildingFightInfo(building_uid int64) *protocol.BuildingFightInfo {
+	building, has := this.building_list[building_uid]
+	if !has {
+		return nil
+	}
+
+	msg := new(protocol.BuildingFightInfo)
+	msg.SetUid(building.GetUid())
+	msg.SetSchemeId(building.GetSchemeId())
+	msg.SetLv(building.GetLv())
+	msg.SetResource(int64(building.CalResourceByFight()))
+	return msg
+}
+
+func (this *BuildingSys) BuildingSize() int32 {
+	return int32(len(this.building_list))
+}
+
+func (this *BuildingSys) BuildingFind(building_uid int64) bool {
+	_, has := this.building_list[building_uid]
+	return has
+}
+
+func (this *BuildingSys) BuildingObtain(scheme_id int32, lv int32, is_notify bool) (int64, common.RetCode) {
+	if _, has := scheme.Buildingmap[scheme_id]; !has {
+		LogError("BuildingObtain BuildingMap NULL Scheme_id : ", scheme_id)
+		return 0, common.RetCode_SchemeData_Error
+	}
+
+	if lvUp := scheme.BuildingLvUpGet(scheme_id, lv); lvUp == nil {
+		LogError("BuildingObtain BuildingLvUp NULL Scheme_id : ", scheme_id, " Lv : ", lv)
+		return 0, common.RetCode_SchemeData_Error
+	}
+
+	building, err := NewBuilding(scheme_id, lv, this.owner.GetUid())
+	if err != nil {
+		LogFatal(err)
+		return 0, common.RetCode_SchemeData_Error
+	}
+
+	building.StartProduct()
+	this.building_list[building.GetUid()] = building
+	this.Save(building)
+
+	if is_notify {
+		this.send_notify(building)
+	}
+
+	this.static_building(building)
+
+	return building.GetUid(), common.RetCode_Success
+}
+
+func (this *BuildingSys) BuildingStartLvUp(building_uid int64, usedCoin bool, is_notify bool) common.RetCode {
+	building, has := this.building_list[building_uid]
+	LogDebug("enter BuildingStartLvUp:", building_uid, usedCoin)
+	if !has {
+		LogError("BuildingStartLvUp uid Error : ", building_uid)
+		return common.RetCode_BuildingUidError
+	}
+
+	if building.GetLv() >= scheme.Commonmap[define.BuildingLvMax].Value {
+		LogDebug("building.GetLv() >= scheme.Commonmap[define.BuildingLvMax].Value:", building.GetLv(), scheme.Commonmap[define.BuildingLvMax].Value)
+		return common.RetCode_BuildingLvMax
+	}
+
+	//判断是否处于升级过程中
+	if building.GetBuildTimestamp() != 0 {
+		LogDebug("building.GetBuildTimestamp():", building.GetBuildTimestamp())
+		return common.RetCode_BuildingLvUpNow
+	}
+
+	//判断魔王等级
+	LogDebug("GetLvUpKingLv ,GetKingLv", building.GetLvUpKingLv(), this.owner.GetKingLv())
+	if building.GetLvUpKingLv() > this.owner.GetKingLv() {
+		LogDebug("building.GetLvUpKingLv() > this.owner.GetKingLv():", building.GetLvUpKingLv(), this.owner.GetKingLv())
+		return common.RetCode_BuildingLvLimit
+	}
+
+	scheme_buildingLvup := scheme.BuildingLvUpGet(building.GetSchemeId(), building.GetLv()+1)
+	if scheme_buildingLvup == nil {
+		LogError("BuildingStartLvUp BuildingLvUpGet Error Id : ", building.GetSchemeId(), " Lv : ", building.GetLv()+1)
+		return common.RetCode_SchemeData_Error
+	}
+
+	//立即升级
+	if usedCoin {
+		coin1 := ResourceToCoin(common.RTYPE_TIME, building.scheme_lvup_data.LvUpTime)
+		coin2 := ResourceToCoin(common.RTYPE_BLOOD, building.GetLvUpBlood())
+		coin3 := ResourceToCoin(common.RTYPE_SOUL, building.GetLvUpSoul())
+		coin := coin1 + coin2 + coin3
+		if !this.owner.IsEnoughGold(coin) {
+			return common.RetCode_RoleNotEnoughGold
+		}
+
+		//立即升级
+		this.owner.CostGold(coin, true, true)
+		building.SetLv(building.GetLv() + 1)
+		building.SetBuildTimestamp(0)
+		building.scheme_lvup_data = scheme_buildingLvup
+		this.Save(building)
+
+		if is_notify {
+			this.send_notify(building)
+		}
+
+		this.static_building(building)
+		this.owner.StaticPayLog(int32(static.PayType_upBuildingOnekey), 0, coin)
+
+		//成就
+		//魔血箱 2
+		if building.GetSchemeId() == 2 {
+			this.owner.AchievementAddNum(6, building.BuildingCache.GetLv(), true)
+		} else if building.GetSchemeId() == 3 {
+			//魔魂生产 3
+			this.owner.AchievementAddNum(7, building.BuildingCache.GetLv(), true)
+		}
+
+		return common.RetCode_Success
+	}
+
+	//魔血魔魂
+	if !this.owner.IsEnoughBlood(building.GetLvUpBlood()) {
+		LogError("!this.owner.IsEnoughBlood(building.GetLvUpBlood()):", !this.owner.IsEnoughBlood(building.GetLvUpBlood()), building.GetLvUpBlood())
+		return common.RetCode_RoleNotEnoughBlood
+	}
+
+	if !this.owner.IsEnoughSoul(building.GetLvUpSoul()) {
+		LogError("!this.owner.IsEnoughSoul(building.GetLvUpSoul()):", !this.owner.IsEnoughSoul(building.GetLvUpSoul()), building.GetLvUpSoul())
+		return common.RetCode_RoleNotEnoughSoul
+	}
+
+	//升级队列
+	if this.BuildingGetQueueUid() > 0 || this.owner.KingGetQueueId() > 0 {
+		LogDebug("this.BuildingGetQueueUid() > 0 || this.owner.KingGetQueueId() > 0 :", this.BuildingGetQueueUid(), this.owner.KingGetQueueId())
+		return common.RetCode_QueueFull
+	}
+
+	this.owner.CostBlood(building.GetLvUpBlood(), true, true)
+	this.owner.CostSoul(building.GetLvUpSoul(), true, true)
+	building.BuildingCache.SetBuildTimestamp(Time() + int64(building.scheme_lvup_data.LvUpTime))
+	this.queueUid = building.GetUid()
+
+	LogDebug("queueUid = : ", building.GetUid(), building.GetSchemeId())
+
+	this.Save(building)
+
+	if is_notify {
+		this.send_notify(building)
+	}
+
+	return common.RetCode_Success
+}
+
+func (this *BuildingSys) BuildingCancelLvUp(building_uid int64, is_notify bool) common.RetCode {
+	building, has := this.building_list[building_uid]
+	if !has {
+		return common.RetCode_BuildingUidError
+	}
+
+	//判断是否处于升级过程中
+	if building.GetBuildTimestamp() == 0 {
+		LogDebug("building.GetBuildTimestamp() == 0 ", building.GetBuildTimestamp())
+		return common.RetCode_Failed
+	}
+
+	CancelBuildingReturn := scheme.Commonmap[define.CancelBuildingReturn].Value
+
+	this.owner.AddBlood(building.GetLvUpBlood()*CancelBuildingReturn/100, true, true)
+	this.owner.AddSoul(building.GetLvUpSoul()*CancelBuildingReturn/100, true, true)
+	building.BuildingCache.SetBuildTimestamp(0)
+	this.queueUid = 0
+	this.Save(building)
+
+	if is_notify {
+		this.send_notify(building)
+	}
+
+	return common.RetCode_Success
+}
+
+//使用货币减少升级时间
+func (this *BuildingSys) BuildingLvUpRemoveTime(building_uid int64, is_notify bool) common.RetCode {
+	building, has := this.building_list[building_uid]
+	if !has {
+		LogDebug("!has")
+		return common.RetCode_BuildingUidError
+	}
+
+	if building.GetBuildTimestamp() < Time() {
+		LogDebug("building.GetBuildTimestamp() < Time()", building.GetBuildTimestamp(), Time())
+		return common.RetCode_Failed
+	}
+
+	buildingLvUp := scheme.BuildingLvUpGet(building.GetSchemeId(), building.GetLv())
+	if buildingLvUp == nil {
+		LogDebug("buildingLvUp == nil")
+		return common.RetCode_SchemeData_Error
+	}
+
+	coin := ResourceToCoin(common.RTYPE_TIME, int32(building.GetBuildTimestamp()-Time()))
+	if this.owner.IsEnoughGold(coin) {
+		this.owner.CostGold(coin, true, true)
+		building.SetLv(building.GetLv() + 1)
+		building.SetBuildTimestamp(0)
+		building.scheme_lvup_data = buildingLvUp
+		this.queueUid = 0
+		this.Save(building)
+
+		if is_notify {
+			this.send_notify(building)
+		}
+
+		this.static_building(building)
+		this.owner.StaticPayLog(int32(static.PayType_upBuildingSpeedup), 0, coin)
+		//成就
+		//魔血箱 2
+		if building.GetSchemeId() == 2 {
+			this.owner.AchievementAddNum(6, building.GetLv(), true)
+		} else if building.GetSchemeId() == 3 {
+			//魔魂生产 3
+			this.owner.AchievementAddNum(7, building.GetLv(), true)
+		}
+
+		return common.RetCode_Success
+	} else {
+		LogDebug("this.owner.IsEnoughGold(coin)", coin)
+		return common.RetCode_RoleNotEnoughGold
+	}
+}
+
+func (this *BuildingSys) BuildingFinishLvUp(building_uid int64, is_notify bool) common.RetCode {
+	building, has := this.building_list[building_uid]
+	if !has {
+		return common.RetCode_BuildingUidError
+	}
+
+	if building.GetBuildTimestamp() == 0 || building.GetBuildTimestamp() > Time() {
+		LogDebug("building.GetBuildTimestamp() > Time():", building.GetBuildTimestamp(), Time())
+		return common.RetCode_Failed
+	}
+
+	scheme_buildingLvup := scheme.BuildingLvUpGet(building.GetSchemeId(), building.GetLv()+1)
+	if scheme_buildingLvup == nil {
+		return common.RetCode_SchemeData_Error
+	}
+
+	building.BuildingCache.SetLv(building.BuildingCache.GetLv() + 1)
+	building.BuildingCache.SetBuildTimestamp(0)
+	building.scheme_lvup_data = scheme_buildingLvup
+	this.queueUid = 0
+	this.static_building(building)
+	this.Save(building)
+
+	if is_notify {
+		this.send_notify(building)
+	}
+
+	//成就
+	//魔血箱 2
+	if building.GetSchemeId() == 2 {
+		this.owner.AchievementAddNum(6, building.BuildingCache.GetLv(), true)
+	} else if building.GetSchemeId() == 3 {
+		//魔魂生产 3
+		this.owner.AchievementAddNum(7, building.BuildingCache.GetLv(), true)
+	}
+
+	return common.RetCode_Success
+}
+
+func (this *BuildingSys) BuildingEditLv(building_uid int64, lv int32, is_notify bool) common.RetCode {
+	building, has := this.building_list[building_uid]
+	if !has {
+		return common.RetCode_BuildingUidError
+	}
+
+	scheme_buildingLvup := scheme.BuildingLvUpGet(building.GetSchemeId(), lv)
+	if scheme_buildingLvup == nil {
+		return common.RetCode_SchemeData_Error
+	}
+
+	building.BuildingCache.SetLv(lv)
+	building.BuildingCache.SetBuildTimestamp(0)
+	building.scheme_lvup_data = scheme_buildingLvup
+
+	this.Save(building)
+
+	if is_notify {
+		this.send_notify(building)
+	}
+
+	this.static_building(building)
+
+	//成就
+	//魔血箱 2
+	if building.GetSchemeId() == 2 {
+		this.owner.AchievementAddNum(6, building.BuildingCache.GetLv(), true)
+	} else if building.GetSchemeId() == 3 {
+		//魔魂生产 3
+		this.owner.AchievementAddNum(7, building.BuildingCache.GetLv(), true)
+	}
+
+	return common.RetCode_Success
+}
+
+func (this *BuildingSys) BuildingCollect(building_uid int64, is_notify bool) common.RetCode {
+	building, has := this.building_list[building_uid]
+	if !has {
+		return common.RetCode_BuildingUidError
+	}
+
+	//判断是否处于升级过程中
+	if building.GetBuildTimestamp() != 0 {
+		return common.RetCode_BuildingLvUpNow
+	}
+
+	blood, soul := building.CalResourceByCollect()
+	LogDebug("BuildingCollect Uid : ", this.owner.GetUid(), " Blood : ", blood, " Soul : ", soul)
+	this.Save(building)
+
+	if is_notify {
+		this.send_notify(building)
+	}
+
+	if blood != 0 {
+		this.owner.AddBlood(blood, true, true)
+		this.static_res_collect_log(int32(static.ResCollectType_blood), blood)
+	}
+
+	if soul != 0 {
+		this.owner.AddSoul(soul, true, true)
+		this.static_res_collect_log(int32(static.ResCollectType_soul), soul)
+	}
+
+	return common.RetCode_Success
+}
+
+func (this *BuildingSys) send_notify(building *Building) {
+	msg := &protocol.MsgBuildingInfoNotify{}
+	msg.SetBuilding(&protocol.BuildingInfo{
+		Uid:              proto.Int64(building.GetUid()),
+		SchemeId:         proto.Int32(building.GetSchemeId()),
+		Lv:               proto.Int32(building.GetLv()),
+		CollectTimestamp: proto.Int64(building.GetCollectTimestamp()),
+		BuildTimestamp:   proto.Int64(building.GetBuildTimestamp()),
+	})
+
+	buf, err := proto.Marshal(msg)
+	if err != nil {
+		LogError(err)
+		return
+	}
+
+	global.SendMsg(int32(protocol.MsgCode_BuildingInfoNotify), this.owner.GetSid(), buf)
+}
+
+func (this *BuildingSys) static_building(building *Building) {
+	msg := &static.MsgStaticBuilding{}
+	msg.SetRoleUid(this.owner.GetUid())
+	msg.SetUid(building.GetUid())
+	msg.SetSchemeId(building.GetSchemeId())
+	msg.SetLv(building.GetLv())
+
+	buf, err := proto.Marshal(msg)
+	if err != nil {
+		LogError(err)
+		return
+	}
+	global.SendToStaticServer(int32(static.MsgStaticCode_Building), buf)
+}
+
+func (this *BuildingSys) static_res_collect_log(rtype int32, value int32) {
+	msg := &static.MsgStaticResCollectLog{}
+	msg.SetRoleUid(this.owner.GetUid())
+	msg.SetType(rtype)
+	msg.SetValue(value)
+	msg.SetTimeStamp(time.Now().Unix())
+
+	buf, err := proto.Marshal(msg)
+	if err != nil {
+		LogError(err)
+		return
+	}
+	global.SendToStaticServer(int32(static.MsgStaticCode_ResCollectLog), buf)
+}

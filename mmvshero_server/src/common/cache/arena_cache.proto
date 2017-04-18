@@ -1,0 +1,31 @@
+syntax="proto2";
+
+package cache;
+
+message ArenaAward
+{
+	required int32 type = 1;
+	required int32 code = 2;
+	required int32 amount = 3;
+}
+
+message ArenaCache
+{
+	required int64 boss_version = 1;
+	required int32 point = 2;
+	required int32 best_score = 3;
+	required int64 shop_version = 4;
+	map<int32, int32> shop_records = 5;
+}
+
+message ArenaSystemCache
+{
+	required int64 boss_version = 1;
+	required int32 boss_id = 2;
+	repeated ArenaAward boss_award1 = 3;
+	repeated ArenaAward boss_award2 = 4;
+	repeated ArenaAward boss_award3 = 5;
+	required int64 shop_version = 6;
+	required int32 shop_panel = 7;
+	repeated ArenaAward shop_award = 8;
+}

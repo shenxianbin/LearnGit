@@ -1,0 +1,69 @@
+syntax="proto2";
+
+package protocol;
+
+message ChatInfo
+{
+	required int64 time_stamp = 1;
+	required bytes content = 2;
+}
+
+enum MessageType
+{
+	Normal=1;
+	Battlefield=2;
+}
+
+message ChatContent
+{
+	required int32  message_type = 1;
+	required bytes content = 2;
+}
+
+message ChatMessageInfo
+{
+	required int64 role_uid = 1;
+	required int32 level = 2;
+	required bytes nickname = 3;
+	required bytes content = 4;
+	optional int64 target_role_uid = 5;
+	optional int32 target_level = 6;
+	optional bytes target_nickname = 7;
+}
+
+enum ChatType
+{
+	Private = 1;
+	World = 2;
+}
+
+message MsgChatQueryReq
+{
+	
+}
+
+message MsgChatQueryRet
+{
+	required int32 retcode = 1;
+	repeated ChatInfo infos = 3;
+}
+
+message MsgChatReq
+{
+	required int32 chat_type = 1;
+	required int64 role_uid = 2;
+	required bytes content = 3;
+}
+
+message MsgChatRet
+{
+	required int32 retcode = 1;
+	required int32 chat_type = 2;
+	required ChatInfo info = 3;
+}
+
+message MsgChatNotify
+{
+	required int32 chat_type = 1;
+	required ChatInfo info = 2;
+}

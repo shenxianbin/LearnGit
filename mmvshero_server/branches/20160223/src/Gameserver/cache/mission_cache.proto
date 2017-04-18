@@ -1,0 +1,13 @@
+syntax="proto2";
+
+package cache;
+
+message MissionCache
+{
+	required int32	schemeId 	= 1 ;//scheme id
+	required int32	reachedNum  = 2 ;    
+	required int32  targetNum   = 3 ;   
+	required int64	timestamp 	= 4 ;
+	required bool   finished    = 5 ;
+	required int32  level		= 6 ;
+}

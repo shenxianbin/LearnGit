@@ -1,0 +1,100 @@
+package plunder
+
+import (
+	. "Gameserver/logic"
+	. "common/cache"
+	"fmt"
+	. "galaxy"
+
+	"github.com/golang/protobuf/proto"
+)
+
+const (
+	cache_plunder_team_autokey_t = "Role:%v:PlunderAutoKey"
+	cache_plunder_team_list_t    = "Role:%v:PlunderTeam"
+	cache_plunder_team_key_t     = "Role:%v:PlunderTeam:%v"
+)
+
+func GenPlunderTeamCacheKey(role_uid int64, team_id int64) string {
+	return fmt.Sprintf(cache_plunder_team_key_t, role_uid, team_id)
+}
+
+type PlunderTeam struct {
+	PlunderTeamCache
+}
+
+type PlunderSys struct {
+	owner          IRole
+	team_list      map[int32]*PlunderTeam
+	cache_list_key string
+}
+
+func (this *PlunderSys) Init(owner IRole) {
+	this.owner = owner
+	this.team_list = make(map[int32]*PlunderTeam)
+	this.cache_list_key = fmt.Sprintf(cache_plunder_team_list_t, this.owner.GetUid())
+}
+
+func (this *PlunderSys) Load() error {
+	resp, err := GxService().Redis().Cmd("SMEMBERS", this.cache_list_key)
+	if err != nil {
+		return err
+	}
+
+	cacheKeys, err := resp.List()
+	if err != nil {
+		return err
+	}
+
+	for _, key := range cacheKeys {
+		resp, err := GxService().Redis().Cmd("GET", key)
+		if err != nil {
+			GxService().Redis().Cmd("SREM", this.cache_list_key, key)
+			continue
+		}
+
+		if buf, _ := resp.Bytes(); buf != nil {
+			team := new(PlunderTeam)
+			err := proto.Unmarshal(buf, &team.PlunderTeamCache)
+			if err != nil {
+				return err
+			}
+			this.team_list[team.GetPos()] = team
+		}
+	}
+
+	return nil
+}
+
+func (this *PlunderSys) Save(team *PlunderTeam) {
+	buf, err := proto.Marshal(&team.PlunderTeamCache)
+	if err != nil {
+		LogFatal(err)
+		return
+	}
+
+	key := GenPlunderTeamCacheKey(this.owner.GetUid(), team.GetTeamId())
+	if _, err := GxService().Redis().Cmd("SET", key, buf); err != nil {
+		LogFatal(err)
+		return
+	}
+
+	if _, err := GxService().Redis().Cmd("SADD", this.cache_list_key, key); err != nil {
+		LogFatal(err)
+		return
+	}
+}
+
+func (this *PlunderSys) Del(team_id int64, pos int32) {
+	key := GenPlunderTeamCacheKey(this.owner.GetUid(), team_id)
+	if _, err := GxService().Redis().Cmd("DEL", key); err != nil {
+		LogFatal(err)
+		return
+	}
+
+	if _, err := GxService().Redis().Cmd("SREM", this.cache_list_key, key); err != nil {
+		LogFatal(err)
+		return
+	}
+	delete(this.team_list, pos)
+}

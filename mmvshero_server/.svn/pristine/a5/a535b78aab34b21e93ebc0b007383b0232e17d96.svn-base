@@ -1,0 +1,1347 @@
+package role
+
+import (
+	. "Gameserver/cache"
+	"Gameserver/global"
+	. "Gameserver/logic"
+	. "Gameserver/logic/achievement"
+	. "Gameserver/logic/alias"
+	. "Gameserver/logic/award"
+	. "Gameserver/logic/building"
+	. "Gameserver/logic/chat"
+	. "Gameserver/logic/decoration"
+	. "Gameserver/logic/fightreport"
+	. "Gameserver/logic/friend"
+	. "Gameserver/logic/gamemap"
+	. "Gameserver/logic/gm"
+	. "Gameserver/logic/hero"
+	. "Gameserver/logic/item"
+	. "Gameserver/logic/king"
+	. "Gameserver/logic/mall"
+	. "Gameserver/logic/mission"
+	. "Gameserver/logic/pvp"
+	. "Gameserver/logic/rolestate"
+	. "Gameserver/logic/sign"
+	. "Gameserver/logic/soldier"
+	. "Gameserver/logic/stage"
+
+	"common"
+	"common/define"
+	"common/protocol"
+	"common/scheme"
+	"common/static"
+	"errors"
+	"fmt"
+	. "galaxy"
+	"math"
+	"time"
+
+	"github.com/golang/protobuf/proto"
+)
+
+const (
+	cache_role_autokey     = "Role:AutoKey"
+	cache_role_key_t       = "Role:%v"
+	cache_role_state_key_t = "Role:%v:State"
+)
+
+func GenRoleCacheKey(role_uid int64) string {
+	return fmt.Sprintf(cache_role_key_t, role_uid)
+}
+
+type Role struct {
+	cache_key   string
+	sid         int64
+	scheme_data *scheme.RoleLvUp
+
+	RoleCache
+	King
+	ItemSys //道具系统
+	BuildingSys
+	DecorationSys
+	HeroSys
+	MapSys
+	UserSoldiers     //魔物列表
+	UserStages       //关卡
+	UserMissions     //任务
+	UserAchievements //成就
+	UserFriends
+	Alias //联盟号 别名
+	PvpSys
+	SignSys
+	MallSys
+	ChatSys
+	FightReportSys
+	GmSys
+}
+
+func CreateRole(uid int64) (*Role, error) {
+	lv := scheme.Commonmap[define.InitialRoleLv].Value
+	scheme_data, has := scheme.RoleLvUpmap[lv]
+	if !has {
+		return nil, errors.New("Create RoleLvUp Scheme Error")
+	}
+
+	obj := new(Role)
+	obj.RoleCache.SetUid(uid)
+	obj.RoleCache.SetNickname("")
+	obj.RoleCache.SetNicknameFlag(0)
+	obj.RoleCache.SetLv(lv)
+	obj.RoleCache.SetExp(scheme.Commonmap[define.InitialRoleExp].Value)
+	obj.RoleCache.SetOrder(scheme.Commonmap[define.InitialOrder].Value)
+	obj.RoleCache.SetOrderTimestamp(time.Now().Unix())
+	obj.RoleCache.SetSpirit(scheme.Commonmap[define.InitialSpirit].Value)
+	obj.RoleCache.SetSpiritTimestamp(time.Now().Unix())
+	obj.RoleCache.SetSoul(int64(scheme.Commonmap[define.InitialSoul].Value))
+	obj.RoleCache.SetBlood(int64(scheme.Commonmap[define.InitialBlood].Value))
+	obj.RoleCache.SetStone(0)
+	obj.RoleCache.SetGold(0)
+	obj.RoleCache.SetFreeGold(scheme.Commonmap[define.InitialGold].Value)
+	obj.RoleCache.SetTrophy(scheme.Commonmap[define.InitialTrophy].Value)
+	obj.RoleCache.SetLeagueLv(scheme.Commonmap[define.InitialLeagueLv].Value)
+	obj.RoleCache.SetAttackWinCount(0)
+	obj.RoleCache.SetDefenceWinCount(0)
+	obj.RoleCache.SetShield(int64(scheme.Commonmap[define.InitialShield].Value))
+	obj.RoleCache.SetVip(0)
+	obj.RoleCache.SetChatFreeTime(scheme.Commonmap[define.InitialChatFreeTime].Value)
+	obj.RoleCache.SetChatRefreshTimestamp(0)
+	obj.RoleCache.SetMagicQueueType(0)
+	obj.RoleCache.SetMagicQueueId(0)
+	obj.RoleCache.SetNewPlayerGuideStep(1)
+	obj.RoleCache.SetLoginTime(time.Now().Unix())
+	obj.scheme_data = scheme_data
+	obj.cache_key = fmt.Sprintf(cache_role_key_t, obj.RoleCache.GetUid())
+	obj.RoleCache.SetTrophy(0)
+
+	obj.Save()
+	obj.init()
+
+	//魔王
+	err := obj.King.Create()
+	if err != nil {
+		return nil, err
+	}
+
+	//地图
+	obj.MapSys.MapInitPointList()
+	err = obj.MapSys.MapInitial(obj.King.GetMapSize())
+	if err != nil {
+		return nil, err
+	}
+
+	//初始道具，初始魔物
+	Award(scheme.Commonmap[define.InitialItem].Value, obj, false)
+	Award(scheme.Commonmap[define.InitialSoldier].Value, obj, false)
+
+	obj.Check()
+
+	return obj, nil
+}
+
+func NewRole() *Role {
+	obj := new(Role)
+	return obj
+}
+
+func (this *Role) init() {
+	this.King.Init(this)
+	this.ItemSys.Init(this)
+	this.BuildingSys.Init(this)
+	this.DecorationSys.Init(this)
+	this.HeroSys.Init(this)
+	this.MapSys.Init(this)
+	this.UserSoldiers.Init(this)
+	this.UserStages.Init(this)
+	this.UserMissions.Init(this)
+	this.UserAchievements.Init(this)
+	this.UserFriends.Init(this)
+	this.PvpSys.Init(this)
+	this.SignSys.Init(this)
+	this.MallSys.Init(this)
+	this.ChatSys.Init(this)
+	this.FightReportSys.Init(this)
+	this.Alias.Init(this)
+	this.GmSys.Init(this)
+}
+
+func (this *Role) LoadAllInfo(roleBytes []byte) error {
+	err := proto.Unmarshal(roleBytes, &this.RoleCache)
+	if err != nil {
+		return err
+	}
+
+	scheme_data, has := scheme.RoleLvUpmap[this.RoleCache.GetLv()]
+	if !has {
+		return errors.New("RoleLvUp Scheme Error")
+	}
+
+	this.scheme_data = scheme_data
+	this.cache_key = fmt.Sprintf(cache_role_key_t, this.RoleCache.GetUid())
+
+	//Todo 各个模块Load
+	this.init()
+
+	err = this.King.Load()
+	if err != nil {
+		return err
+	}
+	err = this.ItemSys.Load()
+	if err != nil {
+		return err
+	}
+	err = this.BuildingSys.Load()
+	if err != nil {
+		return err
+	}
+	err = this.DecorationSys.Load()
+	if err != nil {
+		return err
+	}
+	err = this.HeroSys.Load()
+	if err != nil {
+		return err
+	}
+	err = this.MapSys.Load()
+	if err != nil {
+		return err
+	}
+	err = this.UserSoldiers.Load()
+	if err != nil {
+		return err
+	}
+	err = this.UserStages.Load()
+	if err != nil {
+		return err
+	}
+	err = this.UserAchievements.Load()
+	if err != nil {
+		return err
+	}
+	err = this.UserFriends.Load()
+	if err != nil {
+		return err
+	}
+	err = this.PvpSys.Load()
+	if err != nil {
+		return err
+	}
+	err = this.SignSys.Load()
+	if err != nil {
+		return err
+	}
+	err = this.MallSys.Load()
+	if err != nil {
+		return err
+	}
+	err = this.FightReportSys.Load()
+	if err != nil {
+		return err
+	}
+	err = this.Alias.Load()
+	if err != nil {
+		return err
+	}
+
+	this.Check()
+	this.GmSys.GmProcess(false)
+
+	return nil
+}
+
+func (this *Role) LoadBaseInfo(roleBytes []byte) error {
+	err := proto.Unmarshal(roleBytes, &this.RoleCache)
+	if err != nil {
+		return err
+	}
+
+	scheme_data, has := scheme.RoleLvUpmap[this.RoleCache.GetLv()]
+	if !has {
+		return errors.New("RoleLvUp Scheme Error")
+	}
+	this.scheme_data = scheme_data
+	this.cache_key = fmt.Sprintf(cache_role_key_t, this.RoleCache.GetUid())
+
+	return nil
+}
+
+func (this *Role) LoadFightInfo(roleBytes []byte) error {
+	err := proto.Unmarshal(roleBytes, &this.RoleCache)
+	if err != nil {
+		return err
+	}
+
+	scheme_data, has := scheme.RoleLvUpmap[this.RoleCache.GetLv()]
+	if !has {
+		return errors.New("RoleLvUp Scheme Error")
+	}
+	this.scheme_data = scheme_data
+	this.cache_key = fmt.Sprintf(cache_role_key_t, this.RoleCache.GetUid())
+
+	//Todo 各个模块Load
+	this.King.Init(this)
+	this.BuildingSys.Init(this)
+	this.DecorationSys.Init(this)
+	this.HeroSys.Init(this)
+	this.MapSys.Init(this)
+	this.UserSoldiers.Init(this)
+	this.PvpSys.Init(this)
+
+	err = this.King.Load()
+	if err != nil {
+		return err
+	}
+	err = this.BuildingSys.Load()
+	if err != nil {
+		return err
+	}
+	err = this.DecorationSys.Load()
+	if err != nil {
+		return err
+	}
+	err = this.HeroSys.Load()
+	if err != nil {
+		return err
+	}
+	err = this.MapSys.Load()
+	if err != nil {
+		return err
+	}
+	err = this.UserSoldiers.Load()
+	if err != nil {
+		return err
+	}
+	err = this.PvpSys.Load()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (this *Role) LoadPvpInfo(roleBytes []byte) error {
+	err := proto.Unmarshal(roleBytes, &this.RoleCache)
+	if err != nil {
+		return err
+	}
+
+	scheme_data, has := scheme.RoleLvUpmap[this.RoleCache.GetLv()]
+	if !has {
+		return errors.New("RoleLvUp Scheme Error")
+	}
+	this.scheme_data = scheme_data
+	this.cache_key = fmt.Sprintf(cache_role_key_t, this.RoleCache.GetUid())
+
+	//Todo 各个模块Load
+	this.HeroSys.Init(this)
+	this.PvpSys.Init(this)
+
+	err = this.HeroSys.Load()
+	if err != nil {
+		return err
+	}
+	err = this.PvpSys.Load()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (this *Role) Save() {
+	buf, err := proto.Marshal(&this.RoleCache)
+	if err != nil {
+		LogFatal(err)
+		return
+	}
+
+	if _, err := GxService().Redis().Cmd("SET", this.cache_key, buf); err != nil {
+		LogFatal(err)
+		return
+	}
+}
+
+func (this *Role) Check() {
+	this.RoleCache.SetLoginTime(time.Now().Unix())
+	this.MapSys.Check()
+	this.refreshChatFreeTime(true)
+	this.ChatSys.Check()
+}
+
+func (this *Role) FillRoleBaseInfo() *protocol.RoleBaseInfo {
+	msg := new(protocol.RoleBaseInfo)
+
+	msg.SetUid(this.RoleCache.GetUid())
+	msg.SetNickname(this.RoleCache.GetNickname())
+	msg.SetLv(this.RoleCache.GetLv())
+	msg.SetExp(this.RoleCache.GetExp())
+	msg.SetOrder(this.RoleCache.GetOrder())
+	msg.SetOrderTimestamp(this.RoleCache.GetOrderTimestamp())
+	msg.SetSpirit(this.RoleCache.GetSpirit())
+	msg.SetSpiritTimestamp(this.RoleCache.GetSpiritTimestamp())
+	msg.SetSoul(this.RoleCache.GetSoul())
+	msg.SetBlood(this.RoleCache.GetBlood())
+	msg.SetStone(this.RoleCache.GetStone())
+	msg.SetGold(this.GetGold())
+	msg.SetTrophy(this.RoleCache.GetTrophy())
+	msg.SetLeagueLv(this.RoleCache.GetLeagueLv())
+	msg.SetShield(this.RoleCache.GetShield())
+	msg.SetVip(this.RoleCache.GetVip())
+	msg.SetChatFreeTime(this.RoleCache.GetChatFreeTime())
+	msg.SetMagicQueueType(this.RoleCache.GetMagicQueueType())
+	msg.SetMagicQueueId(this.RoleCache.GetMagicQueueId())
+	msg.SetNewPlayerGuideStep(this.RoleCache.GetNewPlayerGuideStep())
+	msg.SetAlias(this.GetAlias())
+
+	return msg
+}
+
+func (this *Role) fillRoleBaseFightInfo() *protocol.RoleFightInfo {
+	msg := new(protocol.RoleFightInfo)
+	msg.SetUid(this.GetUid())
+	msg.SetName(this.GetNickname())
+	msg.SetLv(this.GetLv())
+	msg.SetStone(this.GetStone())
+	msg.SetTrophy(this.GetTrophy())
+	msg.SetLeagueLv(this.GetLeagueLv())
+	return msg
+}
+
+func (this *Role) fillHeroFightInfo(hero_uid int64) *protocol.HeroFightInfo {
+	return this.HeroSys.FillHeroFightInfo(hero_uid)
+}
+
+func (this *Role) fillSoldierFightInfo(auto_id int32) *protocol.SoldierFightInfo {
+	return this.UserSoldiers.FillSoldierFightInfo(auto_id)
+}
+
+func (this *Role) fillBuildingFightInfo(building_uid int64) *protocol.BuildingFightInfo {
+	return this.BuildingSys.FillBuildingFightInfo(building_uid)
+}
+
+func (this *Role) fillMapInfo() *protocol.MapInfo {
+	return this.MapSys.FillMapInfo()
+}
+
+func (this *Role) OfflineRole(role_uid int64) IRole {
+	resp, err := GxService().Redis().Cmd("GET", GenRoleCacheKey(role_uid))
+	if err != nil {
+		LogError(err)
+		return nil
+	}
+
+	roleBytes, _ := resp.Bytes()
+	if roleBytes != nil {
+		role := NewRole()
+		role.LoadAllInfo(roleBytes)
+		return role
+	}
+	return nil
+}
+
+func (this *Role) OfflineRoleBase(role_uid int64) IRoleBase {
+	resp, err := GxService().Redis().Cmd("GET", GenRoleCacheKey(role_uid))
+	if err != nil {
+		LogError(err)
+		return nil
+	}
+
+	roleBytes, _ := resp.Bytes()
+	if roleBytes != nil {
+		role := NewRole()
+		role.LoadBaseInfo(roleBytes)
+		return role
+	}
+	return nil
+}
+
+func (this *Role) OfflineRoleFight(role_uid int64) IRoleFight {
+	resp, err := GxService().Redis().Cmd("GET", GenRoleCacheKey(role_uid))
+	if err != nil {
+		LogError(err)
+		return nil
+	}
+
+	roleBytes, _ := resp.Bytes()
+	if roleBytes != nil {
+		role := NewRole()
+		role.LoadFightInfo(roleBytes)
+		return role
+	}
+	return nil
+}
+
+func (this *Role) OfflineRolePvp(role_uid int64) IRolePvp {
+	resp, err := GxService().Redis().Cmd("GET", GenRoleCacheKey(role_uid))
+	if err != nil {
+		LogError(err)
+		return nil
+	}
+
+	roleBytes, _ := resp.Bytes()
+	if roleBytes != nil {
+		role := NewRole()
+		role.LoadPvpInfo(roleBytes)
+		return role
+	}
+	return nil
+}
+
+func (this *Role) FillMapFightInfo() *protocol.MapFightInfo {
+	msg := new(protocol.MapFightInfo)
+	msg.SetRole(this.fillRoleBaseFightInfo())
+	msg.SetKinglv(this.GetKingLv())
+
+	heros := make([]*protocol.HeroFightInfo, 0)
+	soldiers := make([]*protocol.SoldierFightInfo, 0)
+	buildings := make([]*protocol.BuildingFightInfo, 0)
+	mapinfo := this.GetMaps()
+	for _, v := range mapinfo {
+		switch v.GetObjType() {
+		case common.MAP_OBJ_MAGIC_HERO:
+			heros = append(heros, this.fillHeroFightInfo(v.GetId()))
+		case common.MAP_OBJ_MAGIC_SOLDIER:
+			soldiers = append(soldiers, this.fillSoldierFightInfo(int32(v.GetId())))
+		case common.MAP_OBJ_MAGIC_BUILDING:
+			buildings = append(buildings, this.fillBuildingFightInfo(v.GetId()))
+		}
+	}
+
+	msg.SetHeros(heros)
+	msg.SetSoldiers(soldiers)
+	msg.SetBuildings(buildings)
+	msg.SetMapInfo(this.fillMapInfo())
+	return msg
+}
+
+func (this *Role) FillPvpFightInfo() *protocol.PvpFightInfo {
+	msg := new(protocol.PvpFightInfo)
+	msg.SetRole(this.fillRoleBaseFightInfo())
+
+	fight_hero_list := this.PvpFightHeroList()
+	heros := make([]*protocol.HeroFightInfo, len(fight_hero_list))
+	for index, uid := range fight_hero_list {
+		heros[index] = this.fillHeroFightInfo(uid)
+	}
+	msg.SetHeros(heros)
+	return msg
+}
+
+func (this *Role) PvpFillFightInfo() *protocol.MsgPvpMatchRet {
+	msg := new(protocol.MsgPvpMatchRet)
+	msg.SetRetcode(int32(common.RetCode_Success))
+	msg.SetInfo(this.FillPvpFightInfo())
+	return msg
+}
+
+func (this *Role) GetSid() int64 {
+	return this.sid
+}
+
+func (this *Role) SetNickname(name string) common.RetCode {
+	if this.RoleCache.GetNicknameFlag() == 0 {
+		this.RoleCache.SetNickname(name)
+		this.RoleCache.SetNicknameFlag(1)
+		this.Save()
+		return common.RetCode_Success
+	}
+
+	if !this.IsEnoughGold(scheme.Commonmap[define.ModifyNickname].Value) {
+		return common.RetCode_RoleNotEnoughGold
+	}
+	this.RoleCache.SetNickname(name)
+	this.CostGold(scheme.Commonmap[define.ModifyNickname].Value, true, false)
+	this.Save()
+	return common.RetCode_Success
+}
+
+func (this *Role) AddExp(value int32, is_notify bool, is_save bool) {
+	if this.RoleCache.GetLv() >= scheme.Commonmap[define.RoleLvMax].Value || value <= 0 {
+		return
+	}
+
+	total_exp := this.RoleCache.GetExp() + value
+	for total_exp > 0 {
+		total_exp -= this.scheme_data.NeedExp
+		if total_exp >= 0 {
+			scheme_data, has := scheme.RoleLvUpmap[this.RoleCache.GetLv()+1]
+			if !has {
+				LogError("RoleLvUp Scheme error")
+				return
+			}
+			this.AddOrder(this.scheme_data.OrderAdd, is_notify, false)
+			this.AddSpirit(this.scheme_data.SpiritAdd, is_notify, false)
+			this.scheme_data = scheme_data
+			this.RoleCache.SetLv(this.RoleCache.GetLv() + 1)
+
+			this.static_role_change(common.RTYPE_LV, this.RoleCache.GetLv())
+
+			if this.RoleCache.GetLv() >= scheme.Commonmap[define.RoleLvMax].Value {
+				this.RoleCache.SetExp(0)
+				if is_notify {
+					this.send_updateinfo(protocol.RoleAttrType_Exp, int64(this.RoleCache.GetExp()))
+					this.send_updateinfo(protocol.RoleAttrType_Lv, int64(this.RoleCache.GetLv()))
+				}
+				if is_save {
+					this.Save()
+				}
+				return
+			}
+			if total_exp == 0 {
+				this.RoleCache.SetExp(total_exp)
+			}
+		} else {
+			this.RoleCache.SetExp(total_exp + this.scheme_data.NeedExp)
+		}
+	}
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Exp, int64(this.RoleCache.GetExp()))
+		this.send_updateinfo(protocol.RoleAttrType_Lv, int64(this.RoleCache.GetLv()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) freshOrder() {
+	now := time.Now().Unix()
+	delta_time := now - this.RoleCache.GetOrderTimestamp()
+	cur := delta_time / int64(scheme.Commonmap[define.OrderRecover].Value)
+	rest := delta_time % int64(scheme.Commonmap[define.OrderRecover].Value)
+
+	this.RoleCache.SetOrderTimestamp(now - rest)
+	if this.RoleCache.GetOrder() < this.scheme_data.OrderLimit {
+		newOrder := this.RoleCache.GetOrder() + int32(cur)
+		if newOrder > this.scheme_data.OrderLimit {
+			newOrder = this.scheme_data.OrderLimit
+		}
+		this.RoleCache.SetOrder(newOrder)
+	}
+}
+
+func (this *Role) EditOrder(value int32, is_notify bool, is_save bool) {
+	if value < 0 {
+		return
+	}
+
+	now := time.Now().Unix()
+	this.RoleCache.SetOrder(value)
+	this.RoleCache.SetOrderTimestamp(now)
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Order, int64(this.GetOrder()))
+		this.send_updateinfo(protocol.RoleAttrType_Order_Timestamp, now)
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) AddOrder(value int32, is_notify bool, is_save bool) {
+	if value <= 0 {
+		return
+	}
+
+	this.RoleCache.SetOrder(this.RoleCache.GetOrder() + value)
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Order, int64(this.GetOrder()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) CostOrder(value int32, is_notify bool, is_save bool) {
+	if value <= 0 {
+		return
+	}
+	this.freshOrder()
+	this.RoleCache.SetOrder(this.RoleCache.GetOrder() - value)
+	if this.RoleCache.GetOrder() < 0 {
+		this.RoleCache.SetOrder(0)
+	}
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Order, int64(this.GetOrder()))
+		this.send_updateinfo(protocol.RoleAttrType_Order_Timestamp, this.GetOrderTimestamp())
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) IsEnoughOrder(value int32) bool {
+	this.freshOrder()
+	LogDebug("Order : ", this.RoleCache.GetOrder(), " OrderTimeStamp : ", this.RoleCache.GetOrderTimestamp())
+	return this.RoleCache.GetOrder() >= value
+}
+
+func (this *Role) GetOrder() int32 {
+	this.freshOrder()
+	return this.RoleCache.GetOrder()
+}
+
+func (this *Role) freshSpirit() {
+	now := time.Now().Unix()
+	delta_time := now - this.RoleCache.GetSpiritTimestamp()
+	cur := delta_time / int64(scheme.Commonmap[define.SpiritRecover].Value)
+	rest := delta_time % int64(scheme.Commonmap[define.SpiritRecover].Value)
+
+	this.RoleCache.SetSpiritTimestamp(now - rest)
+	if this.RoleCache.GetSpirit() < this.scheme_data.SpiritLimit {
+		newSpirit := this.RoleCache.GetSpirit() + int32(cur)
+		if newSpirit > this.scheme_data.SpiritLimit {
+			newSpirit = this.scheme_data.SpiritLimit
+		}
+		this.RoleCache.SetSpirit(newSpirit)
+	}
+}
+
+func (this *Role) EditSpirit(value int32, is_notify bool, is_save bool) {
+	if value < 0 {
+		return
+	}
+
+	now := time.Now().Unix()
+	this.RoleCache.SetSpirit(value)
+	this.RoleCache.SetSpiritTimestamp(now)
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Spirit, int64(this.GetSpirit()))
+		this.send_updateinfo(protocol.RoleAttrType_Spirit_Timestamp, now)
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) AddSpirit(value int32, is_notify bool, is_save bool) {
+	if value <= 0 {
+		return
+	}
+
+	this.RoleCache.SetSpirit(this.RoleCache.GetSpirit() + value)
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Spirit, int64(this.GetSpirit()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) CostSpirit(value int32, is_notify bool, is_save bool) {
+	if value <= 0 {
+		return
+	}
+	this.freshSpirit()
+	this.RoleCache.SetSpirit(this.RoleCache.GetSpirit() - value)
+	if this.RoleCache.GetSpirit() < 0 {
+		this.RoleCache.SetSpirit(0)
+	}
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Spirit, int64(this.GetSpirit()))
+		this.send_updateinfo(protocol.RoleAttrType_Spirit_Timestamp, this.GetSpiritTimestamp())
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) IsEnoughSpirit(value int32) bool {
+	this.freshSpirit()
+	return this.RoleCache.GetSpirit() >= value
+}
+
+func (this *Role) GetSpirit() int32 {
+	this.freshSpirit()
+	return this.RoleCache.GetSpirit()
+}
+
+func (this *Role) EditSoul(value int64, is_notify bool, is_save bool) {
+	if value < 0 {
+		return
+	}
+
+	this.RoleCache.SetSoul(value)
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Soul, this.RoleCache.GetSoul())
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) AddSoul(value int32, is_notify bool, is_save bool) {
+	if value <= 0 {
+		return
+	}
+
+	this.RoleCache.SetSoul(this.RoleCache.GetSoul() + int64(value))
+	if this.RoleCache.GetSoul() > this.BuildingSys.GetMaxSoul() {
+		this.RoleCache.SetSoul(this.BuildingSys.GetMaxSoul())
+	}
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Soul, this.RoleCache.GetSoul())
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) IsEnoughSoul(value int32) bool {
+	return this.RoleCache.GetSoul() >= int64(value)
+}
+
+func (this *Role) ResetSoul(is_notify bool, is_save bool) {
+	this.RoleCache.SetSoul(0)
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Soul, this.RoleCache.GetSoul())
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) CostSoul(value int32, is_notify bool, is_save bool) {
+	if value <= 0 {
+		return
+	}
+
+	this.RoleCache.SetSoul(this.RoleCache.GetSoul() - int64(value))
+	if this.RoleCache.GetSoul() < 0 {
+		this.RoleCache.SetSoul(0)
+	}
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Soul, this.RoleCache.GetSoul())
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) EditBlood(value int64, is_notify bool, is_save bool) {
+	if value < 0 {
+		return
+	}
+
+	this.RoleCache.SetBlood(value)
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Blood, this.RoleCache.GetBlood())
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) AddBlood(value int32, is_notify bool, is_save bool) {
+	if value <= 0 {
+		return
+	}
+
+	this.RoleCache.SetBlood(this.RoleCache.GetBlood() + int64(value))
+	if this.RoleCache.GetBlood() > this.BuildingSys.GetMaxBlood() {
+		this.RoleCache.SetBlood(this.BuildingSys.GetMaxBlood())
+	}
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Blood, this.RoleCache.GetBlood())
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) IsEnoughBlood(value int32) bool {
+	return this.RoleCache.GetBlood() >= int64(value)
+}
+
+func (this *Role) ResetBlood(is_notify bool, is_save bool) {
+	this.RoleCache.SetBlood(0)
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Blood, this.RoleCache.GetBlood())
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) CostBlood(value int32, is_notify bool, is_save bool) {
+	if value <= 0 {
+		return
+	}
+
+	this.RoleCache.SetBlood(this.RoleCache.GetBlood() - int64(value))
+	if this.RoleCache.GetBlood() < 0 {
+		this.RoleCache.SetBlood(0)
+	}
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Blood, this.RoleCache.GetBlood())
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) EditStone(value int32, is_notify bool, is_save bool) {
+	if value < 0 {
+		return
+	}
+
+	this.RoleCache.SetStone(value)
+	this.static_role_change(common.RTYPE_STONE, this.RoleCache.GetStone())
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Stone, int64(this.RoleCache.GetStone()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) AddStone(value int32, is_notify bool, is_save bool) {
+	if value <= 0 {
+		return
+	}
+
+	this.RoleCache.SetStone(this.RoleCache.GetStone() + value)
+	this.static_role_change(common.RTYPE_STONE, this.RoleCache.GetStone())
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Stone, int64(this.RoleCache.GetStone()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) CostStone(value int32, is_notify bool, is_save bool) {
+	if value <= 0 {
+		return
+	}
+
+	this.RoleCache.SetStone(this.RoleCache.GetStone() - value)
+	if this.RoleCache.GetStone() < 0 {
+		this.RoleCache.SetStone(0)
+	}
+	this.static_role_change(common.RTYPE_STONE, this.RoleCache.GetStone())
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Stone, int64(this.RoleCache.GetStone()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) IsEnoughStone(value int32) bool {
+	return this.RoleCache.GetStone() >= value
+}
+
+func (this *Role) EditGold(value int32, is_notify bool, is_save bool) {
+	if value < 0 {
+		return
+	}
+
+	this.RoleCache.SetGold(value)
+	this.static_role_change(common.RTYPE_GOLD, this.RoleCache.GetGold())
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Gold, int64(this.GetGold()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) AddGold(value int32, is_notify bool, is_save bool) {
+	if value <= 0 {
+		return
+	}
+
+	this.RoleCache.SetGold(this.RoleCache.GetGold() + value)
+	if this.RoleCache.GetGold() > math.MaxInt32-100000 {
+		this.RoleCache.SetGold(math.MaxInt32 - 100000)
+	}
+	this.static_role_change(common.RTYPE_GOLD, this.RoleCache.GetGold())
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Gold, int64(this.GetGold()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) EditFreeGold(value int32, is_notify bool, is_save bool) {
+	if value < 0 {
+		return
+	}
+
+	this.RoleCache.SetFreeGold(value)
+	this.static_role_change(common.RTYPE_FREEGOLD, this.RoleCache.GetFreeGold())
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Gold, int64(this.GetGold()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) AddFreeGold(value int32, is_notify bool, is_save bool) {
+	if value <= 0 {
+		return
+	}
+
+	this.RoleCache.SetFreeGold(this.RoleCache.GetFreeGold() + value)
+	if this.RoleCache.GetFreeGold() > math.MaxInt32-100000 {
+		this.RoleCache.SetFreeGold(math.MaxInt32 - 100000)
+	}
+	this.static_role_change(common.RTYPE_FREEGOLD, this.RoleCache.GetFreeGold())
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Gold, int64(this.GetGold()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) IsEnoughGold(value int32) bool {
+	return (this.RoleCache.GetGold() + this.RoleCache.GetFreeGold()) >= value
+}
+
+func (this *Role) ResetGold(is_notify bool, is_save bool) {
+	this.RoleCache.SetGold(0)
+	this.static_role_change(common.RTYPE_GOLD, this.RoleCache.GetGold())
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Gold, int64(this.GetGold()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) ResetFreeGold(is_notify bool, is_save bool) {
+	this.RoleCache.SetFreeGold(0)
+	this.static_role_change(common.RTYPE_FREEGOLD, this.RoleCache.GetFreeGold())
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Gold, int64(this.GetGold()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) CostGold(value int32, is_notify bool, is_save bool) {
+	if value > this.RoleCache.GetGold() {
+		delta := value - this.RoleCache.GetGold()
+		this.RoleCache.SetGold(0)
+		this.RoleCache.SetFreeGold(this.RoleCache.GetFreeGold() - delta)
+	} else {
+		this.RoleCache.SetGold(this.RoleCache.GetGold() - value)
+		if this.RoleCache.GetGold() < 0 {
+			this.RoleCache.SetGold(0)
+		}
+	}
+	this.static_role_change(common.RTYPE_GOLD, this.RoleCache.GetGold())
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Gold, int64(this.GetGold()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) GetGold() int32 {
+	return this.RoleCache.GetGold() + this.RoleCache.GetFreeGold()
+}
+
+func (this *Role) AddTrophy(value int32, is_notify bool, is_save bool) {
+	if value <= 0 {
+		return
+	}
+
+	this.RoleCache.SetTrophy(this.RoleCache.GetTrophy() + value)
+	if this.RoleCache.GetTrophy() > math.MaxInt32-100000 {
+		this.RoleCache.SetTrophy(math.MaxInt32 - 100000)
+	}
+	this.static_role_change(common.RTYPE_TROPHY, this.RoleCache.GetTrophy())
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Trophy, int64(this.RoleCache.GetTrophy()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+
+	_, err := GxService().Redis().Cmd("ZADD", CachePvpmatchpoolKey, this.GetTrophy(), this.GetUid())
+	if err != nil {
+		LogError(err)
+	}
+}
+
+func (this *Role) ResetTrophy(is_notify bool, is_save bool) {
+	this.RoleCache.SetTrophy(0)
+	this.static_role_change(common.RTYPE_TROPHY, this.RoleCache.GetTrophy())
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Trophy, int64(this.RoleCache.GetTrophy()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+
+	_, err := GxService().Redis().Cmd("ZADD", CachePvpmatchpoolKey, this.GetTrophy(), this.GetUid())
+	if err != nil {
+		LogError(err)
+	}
+}
+
+func (this *Role) SubTrophy(value int32, is_notify bool, is_save bool) {
+	if value <= 0 {
+		return
+	}
+
+	this.RoleCache.SetTrophy(this.RoleCache.GetTrophy() - value)
+	if this.RoleCache.GetTrophy() < 0 {
+		this.RoleCache.SetTrophy(0)
+	}
+	this.static_role_change(common.RTYPE_TROPHY, this.RoleCache.GetTrophy())
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Trophy, int64(this.RoleCache.GetTrophy()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+
+	_, err := GxService().Redis().Cmd("ZADD", CachePvpmatchpoolKey, this.GetTrophy(), this.GetUid())
+	if err != nil {
+		LogError(err)
+	}
+}
+
+func (this *Role) SetLeagueLv(lv int32, is_notify bool, is_save bool) {
+	this.RoleCache.SetLeagueLv(lv)
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_LeagueLv, int64(this.RoleCache.GetLeagueLv()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) AddAttackWinCount(is_save bool) {
+	this.RoleCache.SetAttackWinCount(this.RoleCache.GetAttackWinCount() + 1)
+	if this.RoleCache.GetAttackWinCount() > math.MaxInt32-100000 {
+		this.RoleCache.SetAttackWinCount(math.MaxInt32 - 100000)
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) AddDefenceWinCount(is_save bool) {
+	this.RoleCache.SetDefenceWinCount(this.RoleCache.GetDefenceWinCount() + 1)
+	if this.RoleCache.GetDefenceWinCount() > math.MaxInt32-100000 {
+		this.RoleCache.SetDefenceWinCount(math.MaxInt32 - 100000)
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) AddShield(shield_time int64, is_notify bool, is_save bool) {
+	now := time.Now().Unix()
+	if this.RoleCache.GetShield() > now {
+		this.RoleCache.SetShield(this.RoleCache.GetShield() + shield_time)
+	} else {
+		this.RoleCache.SetShield(now + shield_time)
+	}
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Shield, int64(this.RoleCache.GetShield()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) IsShield() bool {
+	return this.RoleCache.GetShield() >= time.Now().Unix()
+}
+
+func (this *Role) SetVip(vip_timestamp int64, is_notify bool, is_save bool) {
+	this.RoleCache.SetVip(vip_timestamp)
+
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Vip, int64(this.RoleCache.GetVip()))
+	}
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) IsVip() bool {
+	return this.RoleCache.GetVip() >= time.Now().Unix()
+}
+
+func (this *Role) refreshChatFreeTime(is_save bool) {
+	now := RefreshTime(scheme.Commonmap[define.ChatFreeTimeRefreshClock].Value)
+	if now == this.RoleCache.GetChatRefreshTimestamp() {
+		return
+	}
+
+	this.RoleCache.SetChatRefreshTimestamp(now)
+	this.RoleCache.SetChatFreeTime(scheme.Commonmap[define.InitialChatFreeTime].Value)
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) CostChatFreeTime(is_notify bool, is_save bool) bool {
+	this.refreshChatFreeTime(false)
+	if this.RoleCache.GetChatFreeTime() <= 0 {
+		return false
+	}
+	this.RoleCache.SetChatFreeTime(this.RoleCache.GetChatFreeTime() - 1)
+	if is_notify {
+		this.send_updateinfo(protocol.RoleAttrType_Chat_FreeTime, int64(this.RoleCache.GetChatFreeTime()))
+	}
+	if is_save {
+		this.Save()
+	}
+
+	return true
+}
+
+func (this *Role) ResetMagicQueue(is_save bool) {
+	this.RoleCache.SetMagicQueueType(0)
+	this.RoleCache.SetMagicQueueId(0)
+
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) SetMagicQueue(magic_type int32, magic_id int64, is_save bool) bool {
+	if this.RoleCache.GetMagicQueueId() != 0 {
+		return false
+	}
+	this.RoleCache.SetMagicQueueType(magic_type)
+	this.RoleCache.SetMagicQueueId(magic_id)
+
+	if is_save {
+		this.Save()
+	}
+	return true
+}
+
+func (this *Role) GetMagicQueue() (int32, int64) {
+	return this.RoleCache.GetMagicQueueType(), this.RoleCache.GetMagicQueueId()
+}
+
+func (this *Role) SetNewPlayerGuideStep(step int32, is_save bool) {
+	this.RoleCache.SetNewPlayerGuideStep(step)
+	if is_save {
+		this.Save()
+	}
+}
+
+func (this *Role) send_updateinfo(attr_type protocol.RoleAttrType, attr_value int64) {
+	msg := &protocol.MsgRoleInfoUpdateNotify{
+		AttrType:  (*protocol.RoleAttrType)(proto.Int32(int32(attr_type))),
+		AttrValue: proto.Int64(attr_value),
+	}
+	buf, err := proto.Marshal(msg)
+	if err != nil {
+		return
+	}
+	global.SendMsg(int32(protocol.MsgCode_RoleInfoUpdateNotify), this.GetSid(), buf)
+}
+
+func (this *Role) static_role_change(rtype int32, value int32) {
+	msg := &static.MsgStaticRoleChange{}
+	msg.SetRoleUid(this.GetUid())
+	msg.SetType(rtype)
+	msg.SetValue(value)
+
+	buf, err := proto.Marshal(msg)
+	if err != nil {
+		LogError(err)
+		return
+	}
+	global.SendToStaticServer(int32(static.MsgStaticCode_RoleChange), buf)
+}
+
+func (this *Role) StaticPayLog(paytype int32, scheme_id int32, gold int32) {
+	msg := &static.MsgStaticPayLog{}
+	msg.SetRoleUid(this.GetUid())
+	msg.SetLv(this.GetLv())
+	msg.SetType(paytype)
+	msg.SetSchemeId(scheme_id)
+	msg.SetGold(gold)
+	msg.SetTimeStamp(time.Now().Unix())
+
+	buf, err := proto.Marshal(msg)
+	if err != nil {
+		LogError(err)
+		return
+	}
+	global.SendToStaticServer(int32(static.MsgStaticCode_PayLog), buf)
+}
+
+func (this *Role) Offline() {
+	this.PvpGiveUp()
+	roleState, err := NewRoleState(this.GetUid())
+	if err != nil {
+		LogError(err)
+		return
+	}
+	roleState.SetOnlineServer(0, true)
+}

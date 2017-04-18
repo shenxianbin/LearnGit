@@ -1,0 +1,12 @@
+syntax = "proto2";
+package protocol;
+
+message PurchaseItem
+{
+    required string orderId=1;//订单编号，唯一,同一笔订单只处理一次
+	required int64 roleId = 2;//角色Id
+	required int32 itemId=3;//商品Id
+	required int32 serverId= 4;//服务器编号
+	required string platform=5;//支付平台（做统计时使用）
+	required string md5=6;//校验码md5(orderId+roleId+itemId+key)
+}

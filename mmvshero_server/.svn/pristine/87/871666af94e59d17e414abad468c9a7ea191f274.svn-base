@@ -1,0 +1,43 @@
+package building
+
+import (
+	"Gameserver/global"
+	"Gameserver/logic"
+	"common/protocol"
+	. "galaxy"
+
+	"github.com/golang/protobuf/proto"
+)
+
+func InitBuildingModule() {
+	initProtocol()
+}
+
+func initProtocol() {
+	global.RegisterMsg(int32(protocol.MsgCode_BuildingLvUpReq), func(sid int64, msg []byte) {
+		LogDebug("enter MsgCode_BuildingLvUpReq")
+		role := logic.GetRoleBySid(sid)
+		if role == nil {
+			return
+		}
+
+		req := &protocol.MsgBuildingLvUpReq{}
+		err := proto.Unmarshal(msg, req)
+		if err != nil {
+			LogError(err)
+			return
+		}
+
+		retCode := role.BuildingLvUp(req.GetBuildingUid(), true)
+		ret := &protocol.MsgBuildingLvUpRet{}
+		ret.SetRetcode(int32(retCode))
+
+		buf, err := proto.Marshal(ret)
+		if err != nil {
+			LogError(err)
+			return
+		}
+
+		global.SendMsg(int32(protocol.MsgCode_BuildingLvUpRet), sid, buf)
+	})
+}

@@ -1,0 +1,235 @@
+syntax="proto2";
+
+package protocol;
+
+enum MsgCode {
+
+//Login(1)
+	LoginAuthReq = 11801001;
+ 	LoginAuthRet = 18101001;
+
+ 	LoginInReq = 11801002;
+ 	LoginInRet = 18101002;
+
+//Role(2)
+	RoleInfoUpdateNotify = 18102001;
+
+	RoleSetNicknameReq = 11802002;
+	RoleSetNicknameRet = 18102002;
+
+	RoleNewGuideUpdate = 11802003;
+
+	RoleKingSkillLvUpReq = 11802004;
+	RoleKingSkillLvUpRet = 18102004;
+
+//Item(3)
+	ItemInfoUpdateNotify = 18103001;
+
+	ItemUseReq = 11803002;
+	ItemUseRet = 18103002;
+
+//hero(4)
+	HeroInfoNotify = 18104001;
+
+	HeroLoseNotify = 18104002;
+
+	HeroLvUpNotify = 18104003;
+
+	HeroSkillLvUpReq = 11804004;
+	HeroSkillLvUpRet = 18104004;
+
+	HeroMixReq = 11804005;
+	HeroMixRet = 18104005;
+
+//Map(5)
+	MapRefreshReq = 11805001;
+	MapRefreshRet = 18105001;
+
+	MapUpdateNotify = 18105002;
+
+	MapRemoveObstacleReq = 11805003;
+	MapRemoveObstacleRet = 18105003;
+
+	MapUnLockPointReq = 11805004;
+	MapUnLockPointRet = 18105004;
+
+	MapUpdatePointNotify = 18105005;
+
+//Drop(6)
+	DropReq = 11806001;
+	DropRet = 18106001;
+
+//Soldier(8)
+	SoldierLvRet = 18108001;
+
+	SoldierSkillLvReq = 11808002;
+	SoldierSkillLvRet = 18108002;
+
+	SoldierAllReq = 11808003;
+	SoldierAllRet = 18108003;
+
+	SoldierNotify = 18108004;
+
+//Building(9)
+	BuildingLvUpReq = 11809001;
+	BuildingLvUpRet = 18109001;
+
+	BuildingInfoNotify = 18109002;
+	
+//Arena(10)
+	ArenaQueryReq = 11810001;
+ 	ArenaQueryRet = 18110001;
+	
+ 	ArenaFightReq = 11810002;
+	ArenaFightRet  = 18110002;
+	
+	ArenaShopQueryReq = 11810003;
+ 	ArenaShopQueryRet = 18110003;
+	
+	ArenaShopBuyReq = 11810004;
+	ArenaShopBuyRet = 18110004;
+
+//Stage(11)
+	StageAllReq  = 11811001;
+	StageAllRet  = 18111001;
+	StageBeginReq = 11811002;
+	StageBeginRet = 18111002;
+	StageFinishReq = 11811003;
+	StageFinishRet = 18111003;
+	StagePlayAnimationRet =11811004;
+	StagePlayAnimationReq =18111004;
+	StagePurchaseRet = 11811005;
+	StagePurchaseReq = 18111005;
+	StageNotify = 18111006;
+
+//mission(12)
+	MissionAllReq = 11812001;
+	MissionAllRet = 18112001;
+	MissionAddNumReq = 11812002;
+	MissionAddNumRet = 18112002;
+	MissionFinishReq = 11812003;
+	MissionFinishRet = 18112003;
+	MissionNotifyRet = 18112004;
+
+//Achievement 13
+	AchievementAllReq = 11813001;
+	AchievementAllRet = 18113001;
+	AchievementAddNumReq = 11813002;
+	AchievementAddNumRet = 18113002;
+	AchievementFinishReq = 11813003;
+	AchievementFinishRet = 18113003;
+	AchievementNotifyRet = 18113004;
+
+//Plunder 14
+	PlunderQueryReq = 11814001;
+	PlunderQueryRet = 18114001;
+
+	PlunderGuardReq = 11814002;
+	PlunderGuardRet = 18114002;
+
+	PlunderAwardReq = 11814003;
+	PlunderAwardRet = 18114003;
+
+	PlunderSheildReq = 11814004;
+	PlunderSheildRet = 18114004;
+
+	PlunderGuardNowReportReq = 11814005;
+	PlunderGuardNowReportRet = 18114005;
+
+	PlunderGuardBeforeReportReq = 11814006;
+	PlunderGuardBeforeReportRet = 18114006;
+
+	PlunderSearchQueryReq = 11814007;
+	PlunderSearchQueryRet = 18114007;
+
+	PlunderSearchReq = 11814008;
+	PlunderSearchRet = 18114008;
+
+	PlunderConfirmReq = 11814009;
+	PlunderConfirmRet = 18114009;
+
+	PlunderChangeReq = 11814010;
+	PlunderChangeRet = 18114010;
+
+	PlunderFightReq = 11814011;
+	PlunderFightRet = 18114011;
+
+	PlunderGiveUpReq = 11814012;
+	PlunderGiveUpRet = 18114012;
+
+	PlunderReportReq = 11814013;
+	PlunderReportRet = 18114013;
+
+	PlunderRevengeSearchReq = 11814014;
+	PlunderRevengeSearchRet = 18114014;
+
+	PlunderFightStartReq = 11814015;
+	PlunderFightStartRet = 18114015;
+
+	PlunderPurchaseReq = 11814016;
+	PlunderPurchaseRet = 18114016;
+
+	PlunderSearchCancelReq = 11814017;
+	PlunderSearchCancelRet = 18114017;
+
+//Sign(15)
+	SignInitReq = 11815001;
+	SignInitRet = 18115001;
+
+	SignInReq = 11815002;
+	SignInRet = 18115002;
+
+//Mall(16)
+	MallInitReq = 11816001;
+	MallInitRet = 18116001;
+
+	MallBuyReq = 11816002;
+	MallBuyRet = 18116002;
+
+	MallGoldFillReq = 11816003;
+	MallGoldFillRet = 18116003;
+
+//friend 17
+	FriendAllReq = 11817001;
+	FriendAllRet = 18117001;
+	FriendSearchReq = 11817002;
+	FriendSearchRet = 18117002;
+	FriendDeleteReq = 11817003;
+	FriendDeleteRet = 18117003;
+	FriendSendExcitationReq = 11817004;
+	FriendSendExcitationRet = 18117004;
+	FriendUseExcitationReq = 11817005;
+	FriendUseExcitationRet = 18117005;
+	FriendSavePvpResultReq = 11817006;
+	FriendSavePvpResultRet = 18117006;
+
+	FriendRequestAllReq = 11817007;
+	FriendRequestAllRet = 18117007;
+	FriendRequestAddReq = 11817008;
+	FriendRequestAddRet = 18117008;
+	FriendRequestDealWithReq = 11817009;
+	FriendRequestDealWithRet = 18117009;
+
+	FriendInviteAddIdReq = 11817010;
+	FriendInviteAddIdRet = 18117010;
+
+//chat 18
+	ChatQueryReq = 11818001;
+	ChatQueryRet = 18118001;
+
+	ChatReq= 11818002;
+	ChatRet= 18118002;
+
+//fightreport 19
+	FightReportReq = 11819001;
+	FightReportRet = 18119001;
+
+	FightReportIdReq = 11819002;
+	FightReportIdRet = 18119002;
+
+	FightReportAdd = 11819003;
+
+	FightReportUpdate = 11819004;
+}
+
+

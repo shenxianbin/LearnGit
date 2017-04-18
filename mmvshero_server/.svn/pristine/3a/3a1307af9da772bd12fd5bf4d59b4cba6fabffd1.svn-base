@@ -1,0 +1,36 @@
+syntax="proto2";
+
+package cache;
+
+import "role_cache.proto";
+import "item_cache.proto";
+import "hero_cache.proto";
+import "soldier_cache.proto";
+import "building_cache.proto";
+
+message GmCommandContent
+{
+	required int32 option = 1;
+	required int32 operation = 2;
+	required int64 value = 3;
+}
+
+message GmCommandOrder
+{
+	required int64 orderId = 1;
+	required int32 commandModule = 2;
+	required int32 commandProperty = 3;
+	required int64 uidOrSchemeId = 4;
+	repeated GmCommandContent content = 5;
+	required int32 orderStatus = 6;
+}
+
+message GmRoleQueryAll
+{
+	required RoleCache role = 1;
+	map<int64,ItemCache> item = 2;
+	map<int64,HeroCache> hero = 3;
+	map<int32,SoldierCache> soldier = 4;
+	map<int64,BuildingCache> building = 5;
+	map<int64,GmCommandOrder> gmOrder = 6;
+}

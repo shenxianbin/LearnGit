@@ -1,0 +1,31 @@
+syntax="proto2";
+
+package protocol;
+
+message SignInfo
+{
+	required int32 year_month = 1;
+	required int32 count = 2;
+	required int32 day_index = 3;
+}
+
+message MsgSignInitReq
+{
+	
+}
+
+message MsgSignInitRet 
+{
+	required SignInfo info = 1;
+}
+
+message MsgSignInReq
+{
+	
+}
+
+message MsgSignInRet
+{
+	required int32 retcode = 1;
+	required SignInfo info = 2;
+}
